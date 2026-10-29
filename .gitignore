@@ -39,3 +39,7 @@ frontend/dist/
 frontend/wailsjs/
 frontend/package.json.md5
 .DS_Store
+frontend/vite.config.ts.timestamp-*
+
+# Files shared from Claude (previews, attachments)
+Claude outputs/

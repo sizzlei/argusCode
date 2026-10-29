@@ -31,6 +31,9 @@ interface ModalButton {
 
 let modalOpen = false;
 export const isModalOpen = () => modalOpen;
+export const setModalOpen = (v: boolean) => {
+  modalOpen = v;
+};
 
 /** Shows a message with buttons; resolves to the chosen value ("" on Esc). */
 export function ask(title: string, message: string, buttons: ModalButton[]): Promise<string> {

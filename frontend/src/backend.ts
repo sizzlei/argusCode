@@ -17,6 +17,61 @@ export interface FileContent {
   bom: boolean;
 }
 
+export interface SearchOptions {
+  query: string;
+  caseSensitive: boolean;
+  wholeWord: boolean;
+  regex: boolean;
+  include: string;
+  exclude: string;
+}
+
+export interface Match {
+  line: number; // 1-based
+  col: number; // UTF-16 offset in line
+  len: number;
+  before: string;
+  text: string;
+  after: string;
+}
+
+export interface FileMatches {
+  path: string;
+  rel: string;
+  matches: Match[];
+}
+
+export interface SearchResult {
+  files: FileMatches[];
+  total: number;
+  filesSearched: number;
+  truncated: boolean;
+}
+
+export interface ReplaceResult {
+  path: string;
+  text?: string;
+  count: number;
+  error?: string;
+}
+
+export interface SchemaColumn {
+  name: string;
+  type: string;
+  comment?: string;
+  line?: number;
+}
+
+export interface SchemaTable {
+  schema?: string;
+  name: string;
+  kind: 'table' | 'view';
+  comment?: string;
+  file: string;
+  line: number;
+  columns: SchemaColumn[];
+}
+
 export interface FileStat {
   exists: boolean;
   modTime: number;
@@ -42,6 +97,15 @@ export interface Backend {
   Rename(path: string, newName: string): Promise<string>;
   RevealInFinder(path: string): Promise<void>;
   IsDir(path: string): Promise<boolean>;
+  MoveToTrash(path: string): Promise<void>;
+  WatchDirs(dirs: string[]): Promise<void>;
+  SearchInFolder(root: string, opts: SearchOptions): Promise<SearchResult>;
+  SearchInText(text: string, opts: SearchOptions): Promise<Match[]>;
+  ReplaceInText(text: string, opts: SearchOptions, repl: string): Promise<ReplaceResult>;
+  ReplaceInFiles(paths: string[], opts: SearchOptions, repl: string): Promise<ReplaceResult[]>;
+  ScanSchema(root: string): Promise<SchemaTable[]>;
+  StartupMillis(): Promise<number>;
+  SettingsDir(): Promise<string>;
 }
 
 declare global {
@@ -90,6 +154,19 @@ export function onEvent(name: string, cb: (...args: any[]) => void): void {
   window.runtime?.EventsOn(name, cb);
 }
 
+/** Clipboard via the Wails runtime (works without a user-gesture prompt in WKWebView). */
+export async function copyText(text: string): Promise<void> {
+  const rt = (window as any).runtime;
+  if (rt?.ClipboardSetText) await rt.ClipboardSetText(text);
+  else await navigator.clipboard.writeText(text);
+}
+
+export async function readText(): Promise<string> {
+  const rt = (window as any).runtime;
+  if (rt?.ClipboardGetText) return (await rt.ClipboardGetText()) ?? '';
+  return navigator.clipboard.readText();
+}
+
 export const isMac = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
 
 /** Platform-aware path helpers (paths come from the OS as-is). */
@@ -126,6 +203,10 @@ function createMock(): Backend {
   add(
     '/demo/docs/README.md',
     `# ArgusCode\n\n가벼운 **SQL · Markdown · JSON · YAML** 편집기.\n\n\`\`\`sql\nselect * from dual;\n\`\`\`\n\n- 디렉터리 트리\n- 탭 분할\n`,
+  );
+  add(
+    '/demo/sql/ddl.sql',
+    `CREATE TABLE orders (\n  id bigint NOT NULL COMMENT '주문 ID',\n  member_id bigint NOT NULL COMMENT '회원 ID',\n  amount decimal(12,2),\n  created_at datetime,\n  PRIMARY KEY (id)\n) COMMENT='주문';\nCREATE TABLE members (\n  id bigint NOT NULL,\n  grade varchar(10) COMMENT '등급'\n);\n`,
   );
   add('/demo/config/app.json', `{"name":"argus","port":8080,"features":["sql","md"]}\n`);
   add('/demo/config/db.yaml', `primary:\n  host: db.internal\n  port: 3306\nreplicas:\n  - host: r1\n  - host: r2\n`);
@@ -198,5 +279,94 @@ function createMock(): Backend {
     },
     RevealInFinder: () => ok(undefined),
     IsDir: (p) => ok(dirs.has(p)),
+    MoveToTrash: (p) => {
+      files.delete(p);
+      for (const f of [...files.keys()]) if (f.startsWith(p + '/')) files.delete(f);
+      for (const d of [...dirs]) if (d === p || d.startsWith(p + '/')) dirs.delete(d);
+      return ok(undefined);
+    },
+    WatchDirs: () => ok(undefined),
+    StartupMillis: () => ok(Math.round(performance.now())),
+    SettingsDir: () => ok('~/Library/Application Support/ArgusCode'),
+    ScanSchema: () =>
+      ok([
+        {
+          name: 'orders',
+          kind: 'table' as const,
+          comment: '주문',
+          file: 'sql/ddl.sql',
+          line: 1,
+          columns: [
+            { name: 'id', type: 'bigint', comment: '주문 ID', line: 2 },
+            { name: 'member_id', type: 'bigint', comment: '회원 ID', line: 3 },
+            { name: 'amount', type: 'decimal(12,2)', line: 4 },
+            { name: 'created_at', type: 'datetime', line: 5 },
+          ],
+        },
+        {
+          name: 'members',
+          kind: 'table' as const,
+          file: 'sql/ddl.sql',
+          line: 8,
+          columns: [
+            { name: 'id', type: 'bigint', line: 9 },
+            { name: 'grade', type: 'varchar(10)', comment: '등급', line: 10 },
+          ],
+        },
+      ]),
+    SearchInFolder: (root, o) => {
+      const re = mockRegex(o);
+      const out: FileMatches[] = [];
+      let total = 0;
+      for (const [p, f] of [...files.entries()].sort()) {
+        if (!p.startsWith(root + '/')) continue;
+        const ms = mockSearch(f.content, re);
+        if (ms.length) out.push({ path: p, rel: p.slice(root.length + 1), matches: ms });
+        total += ms.length;
+      }
+      return ok({ files: out, total, filesSearched: files.size, truncated: false });
+    },
+    SearchInText: (t, o) => ok(mockSearch(t, mockRegex(o))),
+    ReplaceInText: (t, o, r) => {
+      const re = mockRegex(o);
+      let count = 0;
+      const text = t.replace(re, () => (count++, r));
+      return ok({ path: '', text, count });
+    },
+    ReplaceInFiles: (paths, o, r) =>
+      ok(
+        paths.map((p) => {
+          const f = files.get(p)!;
+          let count = 0;
+          f.content = f.content.replace(mockRegex(o), () => (count++, r));
+          f.mtime = Date.now();
+          return { path: p, count };
+        }),
+      ),
   };
+}
+
+function mockRegex(o: SearchOptions): RegExp {
+  let p = o.regex ? o.query : o.query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  if (o.wholeWord) p = `\\b(?:${p})\\b`;
+  return new RegExp(p, o.caseSensitive ? 'gm' : 'gim');
+}
+
+function mockSearch(text: string, re: RegExp): Match[] {
+  const out: Match[] = [];
+  text.split('\n').forEach((l, i) => {
+    for (const m of l.matchAll(re)) {
+      if (!m[0]) continue;
+      const col = m.index!;
+      out.push({
+        line: i + 1,
+        col,
+        len: m[0].length,
+        before: l.slice(Math.max(0, col - 40), col),
+        text: m[0],
+        after: l.slice(col + m[0].length),
+      });
+    }
+  });
+  return out;
 }

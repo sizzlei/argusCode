@@ -2,7 +2,10 @@ module github.com/sizzlei/argusCode
 
 go 1.22.0
 
-require github.com/wailsapp/wails/v2 v2.10.2
+require (
+	github.com/fsnotify/fsnotify v1.9.0
+	github.com/wailsapp/wails/v2 v2.10.2
+)
 
 require (
 	github.com/bep/debounce v1.2.1 // indirect

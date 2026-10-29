@@ -1,11 +1,16 @@
 import { Extension } from '@codemirror/state';
 import { LanguageSupport } from '@codemirror/language';
-import { sql, MySQL, PostgreSQL, PLSQL, StandardSQL, SQLDialect } from '@codemirror/lang-sql';
+import { sql, MySQL, PostgreSQL, PLSQL, StandardSQL, SQLDialect, SQLNamespace } from '@codemirror/lang-sql';
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
 import { json, jsonParseLinter } from '@codemirror/lang-json';
 import { yaml } from '@codemirror/lang-yaml';
 import { linter, Diagnostic } from '@codemirror/lint';
-import { parseAllDocuments } from 'yaml';
+import { formatSql } from './sqlformat';
+import { sqlTools } from './sqltools';
+
+const sqlToolsExt = sqlTools();
+import type { Completion } from '@codemirror/autocomplete';
+import type { SchemaTable } from './backend';
 
 export type LangId = 'sql' | 'markdown' | 'json' | 'yaml' | 'text';
 
@@ -60,29 +65,79 @@ export function isSupported(name: string): boolean {
 
 export type DialectId = 'mysql' | 'postgresql' | 'plsql' | 'standard';
 
-export const DIALECTS: Record<DialectId, { label: string; cm: SQLDialect; formatter: string }> = {
-  mysql: { label: 'MySQL', cm: MySQL, formatter: 'mysql' },
-  postgresql: { label: 'PostgreSQL', cm: PostgreSQL, formatter: 'postgresql' },
-  plsql: { label: 'Oracle', cm: PLSQL, formatter: 'plsql' },
-  standard: { label: 'Standard', cm: StandardSQL, formatter: 'sql' },
+export const DIALECTS: Record<DialectId, { label: string; cm: SQLDialect }> = {
+  mysql: { label: 'MySQL', cm: MySQL },
+  postgresql: { label: 'PostgreSQL', cm: PostgreSQL },
+  plsql: { label: 'Oracle', cm: PLSQL },
+  standard: { label: 'Standard', cm: StandardSQL },
 };
 
 // ---- Extensions per language ----------------------------------------------
 
+// Tables / columns found in the folder's DDL, used for completion.
+let sqlSchema: SQLNamespace = {};
+let upperKeywords = true;
 const sqlCache = new Map<DialectId, LanguageSupport>();
+
+/** Replaces the completion schema. Callers must reconfigure open SQL editors. */
+export function setSqlSchema(ns: SQLNamespace) {
+  sqlSchema = ns;
+  sqlCache.clear();
+}
+
+/** Keyword case used by SQL autocomplete. Callers must reconfigure open SQL editors. */
+export function setSqlKeywordCase(upper: boolean) {
+  if (upper === upperKeywords) return;
+  upperKeywords = upper;
+  sqlCache.clear();
+}
+
+/** Builds a CodeMirror completion namespace from scanned DDL tables. */
+export function schemaNamespace(tables: SchemaTable[]): SQLNamespace {
+  const ns: Record<string, SQLNamespace> = {};
+  const schemas: Record<string, { self: Completion; children: Record<string, SQLNamespace> }> = {};
+  for (const t of tables) {
+    const entry: SQLNamespace = {
+      self: {
+        label: t.name,
+        type: t.kind === 'view' ? 'class' : 'type',
+        detail: t.kind === 'view' ? 'view' : 'table',
+        info: [t.comment, t.file].filter(Boolean).join(' · '),
+      },
+      children: (t.columns ?? []).map((c) => ({
+        label: c.name,
+        type: 'property',
+        detail: c.type || undefined,
+        info: c.comment || undefined,
+      })),
+    };
+    if (!(t.name in ns)) ns[t.name] = entry;
+    if (t.schema) {
+      const s = (schemas[t.schema] ??= { self: { label: t.schema, type: 'namespace' }, children: {} });
+      s.children[t.name] = entry;
+    }
+  }
+  for (const [k, v] of Object.entries(schemas)) if (!(k in ns)) ns[k] = v;
+  return ns;
+}
+
 function sqlSupport(d: DialectId): LanguageSupport {
   let s = sqlCache.get(d);
   if (!s) {
-    s = sql({ dialect: DIALECTS[d].cm, upperCaseKeywords: true });
+    s = sql({ dialect: DIALECTS[d].cm, upperCaseKeywords: upperKeywords, schema: sqlSchema });
     sqlCache.set(d, s);
   }
   return s;
 }
 
+/** The YAML library (~100 KB) is only loaded once a YAML file is used. */
+export const loadYaml = () => import('yaml');
+
 const yamlLinter = linter(
-  (view) => {
+  async (view) => {
     const text = view.state.doc.toString();
     const out: Diagnostic[] = [];
+    const { parseAllDocuments } = await loadYaml();
     try {
       for (const doc of parseAllDocuments(text)) {
         for (const e of [...doc.errors, ...doc.warnings]) {
@@ -117,10 +172,11 @@ const mdSupport = markdown({
   },
 });
 
-export function languageExtension(id: LangId, dialect: DialectId): Extension {
+export function languageExtension(id: LangId, dialect: DialectId, large = false): Extension {
+  if (large) return []; // large-file mode: plain text, no parsing
   switch (id) {
     case 'sql':
-      return sqlSupport(dialect);
+      return [sqlSupport(dialect), sqlToolsExt];
     case 'markdown':
       return mdSupport;
     case 'json':
@@ -137,27 +193,26 @@ export function languageExtension(id: LangId, dialect: DialectId): Extension {
 export async function formatText(
   id: LangId,
   text: string,
-  opts: { dialect: DialectId; indent: number },
+  opts: { dialect: DialectId; indent: number; fragment?: boolean; sqlStyle?: 'left' | 'river' },
 ): Promise<string> {
   switch (id) {
     case 'json': {
-      return JSON.stringify(JSON.parse(text), null, opts.indent) + '\n';
+      return JSON.stringify(JSON.parse(text), null, opts.indent) + (opts.fragment ? '' : '\n');
     }
     case 'yaml': {
+      const { parseAllDocuments } = await loadYaml();
       const docs = parseAllDocuments(text);
       for (const d of docs) if (d.errors.length) throw new Error(d.errors[0].message.split('\n')[0]);
       return docs.map((d) => d.toString({ indent: opts.indent })).join('');
     }
     case 'sql': {
-      const { format } = await import('sql-formatter');
-      return (
-        format(text, {
-          language: DIALECTS[opts.dialect].formatter as any,
-          keywordCase: 'upper',
-          tabWidth: opts.indent,
-          linesBetweenQueries: 1,
-        }) + '\n'
-      );
+      const out = formatSql(text, {
+        dialect: opts.dialect,
+        style: opts.sqlStyle ?? 'left',
+        indent: opts.indent,
+        tableIndent: Math.max(opts.indent, 4),
+      });
+      return out + (opts.fragment ? '' : '\n');
     }
     default:
       throw new Error('이 형식은 자동 정렬을 지원하지 않습니다.');

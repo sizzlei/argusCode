@@ -10,8 +10,17 @@
 
 import { Annotation, EditorState, Text, Transaction, StateEffect } from '@codemirror/state';
 import { EditorView } from '@codemirror/view';
-import { api, basename, dirname, isMac } from './backend';
-import { createState, langComp, indentComp, wrapComp, indentExtension } from './editor';
+import { api, copyText, basename, dirname, isMac } from './backend';
+import {
+  createState,
+  langComp,
+  indentComp,
+  wrapComp,
+  wsComp,
+  indentExtension,
+  whitespaceExtension,
+  Whitespace,
+} from './editor';
 import { DialectId, LangId, LANGS, langForName, languageExtension, extOf } from './languages';
 import { ask, contextMenu, errText, h, toast } from './ui';
 
@@ -23,7 +32,37 @@ export interface Settings {
   indent: number;
   wrap: boolean;
   fontSize: number;
+  /** SQL format layout: keywords at the left margin, or right-aligned river. */
+  sqlStyle: 'left' | 'river';
+  /** Editor font family; empty = the built-in monospace stack. */
+  fontFamily: string;
+  whitespace: Whitespace;
+  /** Case of keywords inserted by SQL autocomplete. */
+  sqlKeywordCase: 'upper' | 'lower';
+  trimTrailing: boolean;
+  finalNewline: boolean;
+  autoSave: 'off' | 'delay' | 'blur';
+  /** Files above this size (MB) open in plain-text large-file mode. */
+  largeFileMB: number;
+  /** Reload files changed on disk by other programs. */
+  watch: boolean;
 }
+
+export const DEFAULT_SETTINGS: Settings = {
+  dialect: 'mysql',
+  indent: 2,
+  wrap: false,
+  fontSize: 13,
+  sqlStyle: 'left',
+  fontFamily: '',
+  whitespace: 'none',
+  sqlKeywordCase: 'upper',
+  trimTrailing: false,
+  finalNewline: false,
+  autoSave: 'off',
+  largeFileMB: 3,
+  watch: true,
+};
 
 export interface GroupSession {
   tabs: string[];
@@ -43,6 +82,8 @@ export class Doc {
   dirty = false;
   /** Set when EOL/BOM changed: dirty even though the text is unchanged. */
   metaDirty = false;
+  /** Large-file mode: no syntax highlighting / linting (set at open). */
+  large = false;
   missing = false;
   tabs: Tab[] = [];
   constructor(
@@ -69,6 +110,8 @@ export class Group {
   active: Tab | null = null;
   flex = 1;
   previewOn = false;
+  /** Execution-plan panel (takes precedence over the Markdown preview). */
+  planOn = false;
   el: HTMLElement;
   tabbar: HTMLElement;
   body: HTMLElement;
@@ -88,7 +131,7 @@ export class Group {
   }
 }
 
-type Listener = (what: 'tabs' | 'cursor' | 'dirty' | 'active' | 'saved') => void;
+type Listener = (what: 'tabs' | 'cursor' | 'dirty' | 'active' | 'saved' | 'edit') => void;
 
 export class Workbench {
   groups: Group[] = [];
@@ -98,6 +141,8 @@ export class Workbench {
   private listeners: Listener[] = [];
   private previewTimers = new Map<number, number>();
   private lastDirty = false;
+  /** Runs an app command (set by main.ts). */
+  onCommand?: (cmd: string) => void;
 
   constructor(
     private container: HTMLElement,
@@ -221,7 +266,7 @@ export class Workbench {
   private showGroupContent(g: Group) {
     const hasTab = !!g.active;
     g.host.style.display = hasTab ? '' : 'none';
-    const showPreview = hasTab && g.previewOn && g.active!.doc.lang === 'markdown';
+    const showPreview = hasTab && this.previewMode(g) !== null;
     g.preview.style.display = showPreview ? '' : 'none';
     g.body.classList.toggle('with-preview', showPreview);
     g.empty.style.display = hasTab ? 'none' : '';
@@ -237,7 +282,7 @@ export class Workbench {
 
   private makeTab(doc: Doc, group: Group, text: string | Text, index?: number): Tab {
     const tab = new Tab(doc, group);
-    tab.state = createState(text.toString(), doc.lang, this.settings, this.listenerFor(tab));
+    tab.state = createState(text.toString(), doc.lang, this.settings, this.listenerFor(tab), doc.large);
     doc.tabs.push(tab);
     const i = index ?? (group.active ? group.tabs.indexOf(group.active) + 1 : group.tabs.length);
     group.tabs.splice(i, 0, tab);
@@ -260,13 +305,16 @@ export class Workbench {
       }
     }
     const was = tab.doc.dirty;
-    tab.doc.dirty = tab.doc.metaDirty || !this.stateOf(tab).doc.eq(tab.doc.saved);
+    // Comparing multi-MB texts on every keystroke is costly; in large-file
+    // mode any edit simply marks the document dirty.
+    tab.doc.dirty = tab.doc.metaDirty || tab.doc.large || !this.stateOf(tab).doc.eq(tab.doc.saved);
     if (was !== tab.doc.dirty) {
       for (const t of tab.doc.tabs) this.renderTabs(t.group);
       this.emit('dirty');
     }
-    if (tab.group.previewOn && tab.doc.lang === 'markdown') {
-      for (const t of tab.doc.tabs) if (t.group.active === t && t.group.previewOn) this.schedulePreview(t.group, 250);
+    if (local.length) this.emit('edit');
+    for (const t of tab.doc.tabs) {
+      if (t.group.active === t && this.previewMode(t.group)) this.schedulePreview(t.group, 300);
     }
   }
 
@@ -373,6 +421,8 @@ export class Workbench {
     // Another call may have opened it while we were reading.
     if (this.docs.has(path)) return this.openPath(path, group, focus);
     const doc = new Doc(path, basename(path), langForName(path), Text.of(fc.content.split('\n')));
+    doc.large = fc.content.length > this.settings.largeFileMB * 1024 * 1024;
+    if (doc.large) toast(`'${doc.name}'은(는) 큰 파일이라 하이라이트·문법 검사 없이 열었습니다 (대용량 모드).`);
     doc.eol = fc.eol;
     doc.bom = fc.bom;
     doc.modTime = fc.modTime;
@@ -382,23 +432,27 @@ export class Workbench {
     return t;
   }
 
-  newUntitled(group: Group = this.activeGroup, lang: LangId = 'sql'): Tab {
-    const doc = new Doc(null, `Untitled-${++untitledSeq}`, lang, Text.empty);
-    const t = this.makeTab(doc, group, '');
+  newUntitled(group: Group = this.activeGroup, lang: LangId = 'sql', name?: string, text = ''): Tab {
+    const doc = new Doc(null, name ?? `Untitled-${++untitledSeq}`, lang, Text.empty);
+    const t = this.makeTab(doc, group, text);
+    // A pre-filled buffer is unsaved work.
+    if (text) doc.dirty = true;
     this.activate(t);
     return t;
   }
 
   // ---- save ------------------------------------------------------------------
 
-  async save(tab: Tab | null = this.activeTab, saveAs = false): Promise<boolean> {
+  /** `auto`: an auto-save; leaves whitespace on lines being edited alone. */
+  async save(tab: Tab | null = this.activeTab, saveAs = false, auto = false): Promise<boolean> {
     if (!tab) return false;
     const doc = tab.doc;
+    this.cleanupOnSave(doc, auto);
     const snapshot = this.stateOf(tab).doc;
     let path = doc.path;
     if (!path || saveAs) {
       const defDir = doc.path ? dirname(doc.path) : this.root;
-      let name = doc.path ? doc.name : doc.name + defaultExt(doc.lang);
+      let name = doc.path || extOf(doc.name) ? doc.name : doc.name + defaultExt(doc.lang);
       const p = await api.SaveAsDialog(defDir, name).catch((e) => {
         toast(errText(e), 'error');
         return '';
@@ -443,6 +497,28 @@ export class Workbench {
     return true;
   }
 
+  /** Applies the trim-trailing-whitespace / final-newline settings. */
+  private cleanupOnSave(doc: Doc, auto: boolean) {
+    if (doc.large || !doc.tabs.length) return;
+    const cur = this.textOf(doc);
+    let text = cur;
+    // Markdown uses two trailing spaces as a hard line break.
+    if (this.settings.trimTrailing && doc.lang !== 'markdown') {
+      // On auto-save, keep whitespace on lines with a cursor: the user may be
+      // in the middle of typing "select |".
+      const keep = new Set<number>();
+      if (auto)
+        for (const t of doc.tabs)
+          for (const r of this.stateOf(t).selection.ranges) keep.add(this.stateOf(t).doc.lineAt(r.head).number);
+      text = text
+        .split('\n')
+        .map((l, i) => (keep.has(i + 1) ? l : l.replace(/[ \t]+(\r?)$/, '$1')))
+        .join('\n');
+    }
+    if (this.settings.finalNewline && text.length && !text.endsWith('\n')) text += '\n';
+    if (text !== cur) this.applyText(doc, text);
+  }
+
   async saveAll(): Promise<boolean> {
     for (const d of this.allDocs()) {
       if (!d.dirty) continue;
@@ -460,7 +536,7 @@ export class Workbench {
     if (lang !== doc.lang) {
       doc.lang = lang;
       for (const t of doc.tabs)
-        this.reconfigure(t, langComp.reconfigure(languageExtension(lang, this.settings.dialect)));
+        this.reconfigure(t, langComp.reconfigure(languageExtension(lang, this.settings.dialect, doc.large)));
     }
   }
 
@@ -511,9 +587,10 @@ export class Workbench {
 
   private notified = new Set<string>();
   /** Checks open files for changes made by other programs. */
-  async checkDisk() {
+  async checkDisk(only?: Set<string>) {
     for (const doc of this.allDocs()) {
       if (!doc.path || doc.tabs.length === 0) continue;
+      if (only && !only.has(doc.path)) continue;
       const st = await api.Stat(doc.path).catch(() => null);
       if (!st) continue;
       const was = doc.missing;
@@ -537,6 +614,77 @@ export class Workbench {
         },
       ]);
     }
+  }
+
+  // ---- helpers for search / explorer --------------------------------------------
+
+  docByPath(path: string): Doc | undefined {
+    return this.docs.get(path);
+  }
+
+  textOf(doc: Doc): string {
+    return this.stateOf(doc.tabs[0]).doc.toString();
+  }
+
+  /** Replaces a document's text with `text` as one minimal, undoable edit. */
+  applyText(doc: Doc, text: string) {
+    const cur = this.textOf(doc);
+    if (cur === text) return;
+    let a = 0;
+    const max = Math.min(cur.length, text.length);
+    while (a < max && cur.charCodeAt(a) === text.charCodeAt(a)) a++;
+    let b = 0;
+    while (b < max - a && cur.charCodeAt(cur.length - 1 - b) === text.charCodeAt(text.length - 1 - b)) b++;
+    const change = { from: a, to: cur.length - b, insert: text.slice(a, text.length - b) };
+    for (const t of doc.tabs) {
+      const spec = { changes: change, annotations: [remote.of(true)] };
+      if (t.group.active === t) t.group.view.dispatch(spec);
+      else t.state = t.state.update(spec).state;
+    }
+    doc.dirty = doc.metaDirty || !this.stateOf(doc.tabs[0]).doc.eq(doc.saved);
+    for (const t of doc.tabs) this.renderTabs(t.group);
+    this.emit('dirty');
+  }
+
+  /** Opens a file and selects a range given as 1-based line + UTF-16 column. */
+  async reveal(path: string, line: number, col: number, len: number, focus = true) {
+    const tab = await this.openPath(path, this.activeGroup, focus);
+    if (!tab) return;
+    const v = tab.group.view;
+    const doc = v.state.doc;
+    if (line > doc.lines) return;
+    const l = doc.line(line);
+    const from = Math.min(l.from + col, l.to);
+    const to = Math.min(from + len, l.to);
+    v.dispatch({
+      selection: { anchor: from, head: to },
+      effects: EditorView.scrollIntoView(from, { y: 'center' }),
+    });
+  }
+
+  /** Called after files/folders were moved to the trash. */
+  async pathsRemoved(path: string) {
+    const under = (p: string) => p === path || p.startsWith(path + '/') || p.startsWith(path + '\\');
+    for (const d of this.allDocs()) {
+      if (!d.path || !under(d.path)) continue;
+      if (d.dirty) {
+        d.missing = true;
+        for (const t of d.tabs) this.renderTabs(t.group);
+      } else {
+        for (const t of [...d.tabs]) await this.closeTab(t, true);
+      }
+    }
+  }
+
+  /** Folders of open files (for the file watcher). */
+  openDirs(): string[] {
+    return [
+      ...new Set(
+        this.allDocs()
+          .filter((d) => d.path)
+          .map((d) => dirname(d.path!)),
+      ),
+    ];
   }
 
   // ---- split / move -------------------------------------------------------------
@@ -628,14 +776,26 @@ export class Workbench {
   setDialect(d: DialectId) {
     this.settings.dialect = d;
     for (const t of this.allTabs())
-      if (t.doc.lang === 'sql') this.reconfigure(t, langComp.reconfigure(languageExtension('sql', d)));
+      if (t.doc.lang === 'sql') this.reconfigure(t, langComp.reconfigure(languageExtension('sql', d, t.doc.large)));
     this.emit('cursor');
+  }
+
+  /** Re-applies the SQL language (after the completion schema changed). */
+  refreshSqlLanguage() {
+    for (const t of this.allTabs())
+      if (t.doc.lang === 'sql')
+        this.reconfigure(t, langComp.reconfigure(languageExtension('sql', this.settings.dialect, t.doc.large)));
   }
 
   setIndent(n: number) {
     this.settings.indent = n;
     for (const t of this.allTabs()) this.reconfigure(t, indentComp.reconfigure(indentExtension(n)));
     this.emit('cursor');
+  }
+
+  setWhitespace(w: Whitespace) {
+    this.settings.whitespace = w;
+    for (const t of this.allTabs()) this.reconfigure(t, wsComp.reconfigure(whitespaceExtension(w)));
   }
 
   setWrap(on: boolean) {
@@ -647,7 +807,7 @@ export class Workbench {
   setLanguage(tab: Tab, lang: LangId) {
     tab.doc.lang = lang;
     for (const t of tab.doc.tabs)
-      this.reconfigure(t, langComp.reconfigure(languageExtension(lang, this.settings.dialect)));
+      this.reconfigure(t, langComp.reconfigure(languageExtension(lang, this.settings.dialect, t.doc.large)));
     for (const t of tab.doc.tabs) this.renderTabs(t.group);
     this.showGroupContent(tab.group);
     this.emit('cursor');
@@ -680,12 +840,30 @@ export class Workbench {
 
   // ---- markdown preview -------------------------------------------------------
 
+  /** What the side panel of a group shows, if anything. */
+  private previewMode(g: Group): 'plan' | 'md' | null {
+    if (!g.active) return null;
+    if (g.planOn) return 'plan';
+    if (g.previewOn && g.active.doc.lang === 'markdown') return 'md';
+    return null;
+  }
+
+  /** Shows/hides the execution-plan panel for the active document. */
+  togglePlan(g: Group = this.activeGroup) {
+    if (!g.active) return toast('실행계획 결과를 붙여 넣은 문서를 먼저 여세요.');
+    g.planOn = !g.planOn;
+    this.showGroupContent(g);
+    if (!g.planOn) g.preview.className = 'md-preview markdown-body';
+  }
+
   togglePreview(g: Group = this.activeGroup) {
     if (!g.active || g.active.doc.lang !== 'markdown') {
       toast('Markdown 문서에서만 미리보기를 사용할 수 있습니다.');
       return;
     }
     g.previewOn = !g.previewOn;
+    if (g.previewOn) g.planOn = false;
+    g.preview.className = 'md-preview markdown-body';
     this.showGroupContent(g);
   }
 
@@ -698,7 +876,24 @@ export class Workbench {
   }
 
   private async renderPreview(g: Group) {
-    if (!g.previewOn || !g.active || g.active.doc.lang !== 'markdown') return;
+    const mode = this.previewMode(g);
+    if (mode === 'plan') {
+      const { renderPlanView } = await import('./planview');
+      renderPlanView(g.preview, g.view.state.doc.toString(), {
+        jump: (line) => {
+          const doc = g.view.state.doc;
+          if (line + 1 > doc.lines) return;
+          const l = doc.line(line + 1);
+          g.view.dispatch({
+            selection: { anchor: l.from, head: l.to },
+            effects: EditorView.scrollIntoView(l.from, { y: 'center' }),
+          });
+          g.view.focus();
+        },
+      });
+      return;
+    }
+    if (mode !== 'md') return;
     const [{ marked }, { default: DOMPurify }] = await Promise.all([import('marked'), import('dompurify')]);
     const html = await marked.parse(g.view.state.doc.toString(), { gfm: true, breaks: false });
     g.preview.innerHTML = DOMPurify.sanitize(html);
@@ -807,8 +1002,24 @@ export class Workbench {
       { label: '오른쪽 그룹으로 이동', action: () => this.moveTab(t, 'new-right'), disabled: g.tabs.length < 2 },
       { separator: true, label: '' },
       {
+        label: '저장된 버전과 비교',
+        disabled: !t.doc.path,
+        action: () => {
+          this.activate(t);
+          this.onCommand?.('diff.saved');
+        },
+      },
+      {
+        label: '다른 탭과 비교…',
+        action: () => {
+          this.activate(t);
+          this.onCommand?.('diff.tabs');
+        },
+      },
+      { separator: true, label: '' },
+      {
         label: '경로 복사',
-        action: () => t.doc.path && navigator.clipboard.writeText(t.doc.path),
+        action: () => t.doc.path && copyText(t.doc.path),
         disabled: !t.doc.path,
       },
       {

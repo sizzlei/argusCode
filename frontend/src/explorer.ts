@@ -1,14 +1,15 @@
 // Directory tree in the sidebar. Directories are listed lazily on expand.
 
-import { api, basename, dirname, Entry, isMac } from './backend';
+import { api, copyText, basename, dirname, Entry, isMac } from './backend';
 import { isSupported, langForName, LANGS } from './languages';
-import { contextMenu, errText, h, prompt, toast } from './ui';
+import { ask, contextMenu, errText, h, prompt, toast } from './ui';
 
 export interface ExplorerHooks {
   open(path: string, keepFocus?: boolean): void;
   renamed(oldPath: string, newPath: string): void;
   openFolder(): void;
   changed(): void; // expanded state changed (for session save)
+  deleted(path: string): void;
 }
 
 export class Explorer {
@@ -114,11 +115,27 @@ export class Explorer {
     this.render();
   }
 
+  /** Re-lists only the given folders (from file-watcher events). */
+  async refreshDirs(paths: Iterable<string>) {
+    const dirs = [...new Set(paths)].filter((p) => this.cache.has(p));
+    if (!dirs.length) return;
+    await Promise.all(dirs.map((d) => this.list(d, true)));
+    // Drop expanded folders that no longer exist.
+    const all = new Set([...this.cache.values()].flat().map((e) => e.path));
+    for (const e of [...this.expanded]) if (!all.has(e)) this.expanded.delete(e);
+    this.render();
+  }
+
+  /** Folders currently visible in the tree (for the file watcher). */
+  visibleDirs(): string[] {
+    return this.root ? [this.root, ...[...this.expanded].filter((d) => this.cache.has(d))] : [];
+  }
+
   // ---- rendering -------------------------------------------------------------
 
   render() {
     if (!this.root) {
-      this.titleEl.textContent = 'EXPLORER';
+      this.titleEl.textContent = '탐색기';
       this.treeEl.replaceChildren(
         h(
           'div',
@@ -246,6 +263,13 @@ export class Explorer {
       case 'F2':
         if (cur) this.rename(cur);
         return;
+      case 'Delete':
+      case 'Backspace':
+        if (cur && (e.key === 'Delete' || e.metaKey)) {
+          e.preventDefault();
+          this.trash(cur);
+        }
+        return;
       default:
         return;
     }
@@ -302,6 +326,30 @@ export class Explorer {
     }
   }
 
+  async trash(it: Entry) {
+    const where = isMac ? '휴지통' : '휴지통(Recycle Bin)';
+    const v = await ask(
+      `${where}으로 이동`,
+      `'${it.name}'${it.isDir ? ' 폴더와 그 안의 모든 파일' : ''}을(를) ${where}으로 옮길까요? ${where}에서 복원할 수 있습니다.`,
+      [
+        { label: '이동', value: 'yes', danger: true },
+        { label: '취소', value: '' },
+      ],
+    );
+    if (!v) return;
+    try {
+      await api.MoveToTrash(it.path);
+    } catch (e) {
+      toast(`이동 실패: ${errText(e)}`, 'error');
+      return;
+    }
+    this.expanded.delete(it.path);
+    await this.list(dirname(it.path), true);
+    if (this.selected === it.path) this.selected = '';
+    this.render();
+    this.hooks.deleted(it.path);
+  }
+
   private menu(it: Entry | null, x: number, y: number) {
     const dir = it ? (it.isDir ? it.path : dirname(it.path)) : this.root;
     const path = it?.path ?? this.root;
@@ -316,7 +364,8 @@ export class Explorer {
       { label: '새 폴더…', action: () => this.newEntry(true, dir) },
       { separator: true, label: '' },
       { label: '이름 바꾸기…', hint: 'F2', action: () => it && this.rename(it), disabled: !it },
-      { label: '경로 복사', action: () => navigator.clipboard.writeText(path) },
+      { label: '휴지통으로 이동', hint: isMac ? '⌘⌫' : 'Delete', action: () => it && this.trash(it), disabled: !it },
+      { label: '경로 복사', action: () => copyText(path) },
       { label: isMac ? 'Finder에서 보기' : '탐색기에서 보기', action: () => api.RevealInFinder(path) },
       { separator: true, label: '' },
       {

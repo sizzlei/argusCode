@@ -4,8 +4,13 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"sync"
 	"sync/atomic"
+	"time"
 
+	"github.com/sizzlei/argusCode/internal/platform"
+	"github.com/sizzlei/argusCode/internal/sqlschema"
+	"github.com/sizzlei/argusCode/internal/watch"
 	"github.com/sizzlei/argusCode/internal/workspace"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
@@ -20,6 +25,12 @@ type App struct {
 	allowClose atomic.Bool
 	// dirty mirrors whether the frontend has unsaved documents.
 	dirty atomic.Bool
+
+	watcher *watch.Watcher
+
+	searchMu     sync.Mutex
+	searchCancel context.CancelFunc
+	schemaCancel context.CancelFunc
 }
 
 func NewApp() *App {
@@ -40,6 +51,18 @@ func (a *App) startup(ctx context.Context) {
 	runtime.OnFileDrop(ctx, func(_, _ int, paths []string) {
 		runtime.EventsEmit(ctx, "app:file-drop", paths)
 	})
+	// File-system changes in watched folders are pushed to the frontend.
+	if w, err := watch.New(200*time.Millisecond, func(paths []string) {
+		runtime.EventsEmit(ctx, "fs:changed", paths)
+	}); err == nil {
+		a.watcher = w
+	}
+}
+
+func (a *App) shutdown(context.Context) {
+	if a.watcher != nil {
+		_ = a.watcher.Close()
+	}
 }
 
 // beforeClose is called when the window is about to close. If there are
@@ -51,6 +74,19 @@ func (a *App) beforeClose(ctx context.Context) (prevent bool) {
 	}
 	runtime.EventsEmit(ctx, "app:before-close")
 	return true
+}
+
+// processStart is captured as early as possible to measure startup time.
+var processStart = time.Now()
+
+// StartupMillis reports how long it took from process start until the
+// frontend finished booting (called once by the frontend when ready).
+func (a *App) StartupMillis() int64 { return time.Since(processStart).Milliseconds() }
+
+// SettingsDir returns the folder holding session.json (shown in Settings).
+func (a *App) SettingsDir() string {
+	d, _ := workspace.StateDir()
+	return d
 }
 
 // SetDirty is called by the frontend whenever the unsaved state changes.
@@ -131,4 +167,82 @@ func (a *App) RevealInFinder(path string) { revealInFileManager(path) }
 func (a *App) IsDir(path string) bool {
 	st, err := os.Stat(path)
 	return err == nil && st.IsDir()
+}
+
+// MoveToTrash moves a file or folder to the macOS Trash / Windows Recycle Bin.
+func (a *App) MoveToTrash(path string) error { return platform.MoveToTrash(path) }
+
+// WatchDirs sets the folders whose changes are reported via "fs:changed".
+func (a *App) WatchDirs(dirs []string) {
+	if a.watcher != nil {
+		a.watcher.SetDirs(dirs)
+	}
+}
+
+// ---- find in files ---------------------------------------------------------
+
+// SearchInFolder searches every text file under root. Starting a new search
+// cancels the previous one (which then returns an error the UI ignores).
+func (a *App) SearchInFolder(root string, opts workspace.SearchOptions) (*workspace.SearchResult, error) {
+	ctx, cancel := context.WithCancel(context.Background())
+	a.searchMu.Lock()
+	if a.searchCancel != nil {
+		a.searchCancel()
+	}
+	a.searchCancel = cancel
+	a.searchMu.Unlock()
+	defer cancel()
+	return workspace.Search(ctx, root, opts)
+}
+
+// SearchInText searches an unsaved document's text.
+func (a *App) SearchInText(text string, opts workspace.SearchOptions) ([]workspace.Match, error) {
+	return workspace.SearchText(text, opts)
+}
+
+// ReplaceResult reports the outcome of a replacement.
+type ReplaceResult struct {
+	Path  string `json:"path"`
+	Text  string `json:"text,omitempty"`
+	Count int    `json:"count"`
+	Error string `json:"error,omitempty"`
+}
+
+// ReplaceInText applies a replacement to in-memory text (open editors).
+func (a *App) ReplaceInText(text string, opts workspace.SearchOptions, repl string) (*ReplaceResult, error) {
+	out, n, err := workspace.ReplaceText(text, opts, repl)
+	if err != nil {
+		return nil, err
+	}
+	return &ReplaceResult{Text: out, Count: n}, nil
+}
+
+// ReplaceInFiles applies a replacement to files on disk.
+func (a *App) ReplaceInFiles(paths []string, opts workspace.SearchOptions, repl string) []ReplaceResult {
+	out := make([]ReplaceResult, 0, len(paths))
+	for _, p := range paths {
+		n, err := workspace.ReplaceInFile(p, opts, repl)
+		r := ReplaceResult{Path: p, Count: n}
+		if err != nil {
+			r.Error = err.Error()
+		}
+		out = append(out, r)
+	}
+	return out
+}
+
+// ---- SQL schema --------------------------------------------------------------
+
+// ScanSchema parses the DDL (*.sql) under root for table/column completion.
+// A newer call cancels a scan still in progress.
+func (a *App) ScanSchema(root string) ([]sqlschema.Table, error) {
+	ctx, cancel := context.WithCancel(context.Background())
+	a.searchMu.Lock()
+	if a.schemaCancel != nil {
+		a.schemaCancel()
+	}
+	a.schemaCancel = cancel
+	a.searchMu.Unlock()
+	defer cancel()
+	return sqlschema.Scan(ctx, root)
 }
