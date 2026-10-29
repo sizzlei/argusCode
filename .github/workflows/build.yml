@@ -29,6 +29,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Go version comes from go.mod. Keep it >= 1.23: older linkers omit the
+      # LC_UUID load command, which macOS 15 dyld rejects ("missing LC_UUID").
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
