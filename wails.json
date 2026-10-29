@@ -1,0 +1,19 @@
+{
+  "$schema": "https://wails.io/schemas/config.v2.json",
+  "name": "ArgusCode",
+  "outputfilename": "ArgusCode",
+  "frontend:install": "npm install",
+  "frontend:build": "npm run build",
+  "frontend:dev:watcher": "npm run dev",
+  "frontend:dev:serverUrl": "auto",
+  "author": {
+    "name": "sizzlei"
+  },
+  "info": {
+    "companyName": "sizzlei",
+    "productName": "ArgusCode",
+    "productVersion": "0.1.0",
+    "copyright": "Copyright © 2026 sizzlei",
+    "comments": "Lightweight editor for SQL, Markdown, JSON and YAML"
+  }
+}
