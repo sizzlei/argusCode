@@ -3,6 +3,7 @@ package workspace
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -50,8 +51,9 @@ func TestReadWriteRoundTripCRLFAndBOM(t *testing.T) {
 	if string(b) != want {
 		t.Fatalf("written %q, want %q", b, want)
 	}
+	// Windows has no Unix permission bits (files report 0666 or 0444).
 	st, _ := os.Stat(p)
-	if st.Mode().Perm() != 0o600 {
+	if runtime.GOOS != "windows" && st.Mode().Perm() != 0o600 {
 		t.Errorf("perm = %v, want 0600", st.Mode().Perm())
 	}
 }
