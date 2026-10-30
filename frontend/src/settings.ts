@@ -174,6 +174,11 @@ export function openSettings(hooks: SettingsHooks) {
           ['lower', '소문자 (select)'],
         ]),
       ),
+      row(
+        'SQL 문법 검사',
+        '닫히지 않은 괄호·따옴표, 키워드 오타, 남는 쉼표, 빈 조건은 빨간 박스로, WHERE 없는 UPDATE/DELETE 등은 노란 박스로 표시',
+        toggle('sqlLint'),
+      ),
       (preview = h('pre', { class: 'set-preview' }, previewSql(s.sqlStyle))),
     ],
     files: () => [

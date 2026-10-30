@@ -23,10 +23,11 @@ import {
   LangId,
   schemaNamespace,
   setDdlLint,
+  setSqlLint,
   setSqlKeywordCase,
   setSqlSchema,
 } from './languages';
-import { forceLinting, forEachDiagnostic } from '@codemirror/lint';
+import { forceLinting, forEachDiagnostic, nextDiagnostic } from '@codemirror/lint';
 import { invalidateQuickOpen, quickOpen } from './quickopen';
 import { SearchState, SearchView } from './search';
 import { showEditorMenu } from './editormenu';
@@ -357,6 +358,11 @@ function applySetting<K extends keyof Settings>(key: K, value: Settings[K]) {
     case 'watch':
       st.watch = value as boolean;
       updateWatchSoon();
+      break;
+    case 'sqlLint':
+      st.sqlLint = value as boolean;
+      setSqlLint(st.sqlLint);
+      wb.refreshSqlLanguage();
       break;
     case 'ddlImpact':
       st.ddlImpact = value as boolean;
@@ -963,6 +969,28 @@ function updateStatus() {
         ),
       );
     }
+    if (doc.lang === 'sql' && session.settings.sqlLint) {
+      let errs = 0;
+      let warns = 0;
+      forEachDiagnostic(st, (d) => {
+        if (d.source !== 'SQL 문법') return;
+        if (d.severity === 'error') errs++;
+        else warns++;
+      });
+      if (errs + warns)
+        right.append(
+          statusItem(
+            '문법 ' + [errs && `✕ ${errs}`, warns && `⚠ ${warns}`].filter(Boolean).join(' '),
+            `SQL 문법 검사: 오류 ${errs} · 주의 ${warns} (클릭: 다음 문제로 이동, F8)`,
+            () => {
+              const v = wb.activeGroup.view;
+              nextDiagnostic(v);
+              v.focus();
+            },
+            errs ? 'error' : 'warn',
+          ),
+        );
+    }
     const impactOnly = !ddl.count && !ddl.errors.length && session.settings.ddlImpact;
     let showDdl = doc.lang === 'sql' && (ddl.count > 0 || ddl.errors.length > 0);
     if (doc.lang === 'sql' && impactOnly) {
@@ -1211,6 +1239,7 @@ async function boot() {
   setFontSize(session.settings.fontSize);
   setFontFamily(session.settings.fontFamily);
   setSqlKeywordCase(session.settings.sqlKeywordCase === 'upper');
+  setSqlLint(session.settings.sqlLint);
   wb.setWhitespace(session.settings.whitespace);
   applyTheme(session.settings.theme);
   applyKeybindings();

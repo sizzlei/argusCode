@@ -1693,6 +1693,21 @@ button.sb-item:hover {
   visibility: hidden;
 }
 
+/* ---- SQL syntax check: boxes like a selection, not underlines ------------- */
+.cm-lintRange.cm-sql-bad,
+.cm-lintRange.cm-sql-warn {
+  background-image: none;
+  border-radius: 2px;
+}
+.cm-lintRange.cm-sql-bad {
+  background-color: rgba(229, 72, 64, 0.3);
+  box-shadow: inset 0 0 0 1px rgba(229, 72, 64, 0.85);
+}
+.cm-lintRange.cm-sql-warn {
+  background-color: rgba(232, 163, 61, 0.22);
+  box-shadow: inset 0 0 0 1px rgba(232, 163, 61, 0.75);
+}
+
 /* ---- updates --------------------------------------------------------------- */
 .update-progress {
   flex-direction: column;

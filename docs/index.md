@@ -20,6 +20,7 @@ DBA를 위한 가벼운 데스크톱 편집기입니다. SQL · Markdown · JSON
 | 기능 | 내용 |
 | --- | --- |
 | SQL | 정렬(대소문자 유지, 왼쪽 정렬 / 리버), 폴더 DDL 기반 테이블·컬럼 자동완성, 호버·정의로 이동, IN 목록 변환 |
+| SQL 문법 검사 | 닫히지 않은 괄호·따옴표, 키워드 오타, 남는 쉼표, 빈 조건은 빨간 박스로, WHERE 없는 UPDATE/DELETE 등은 노란 박스로 표시 |
 | 실행계획 | MySQL(JSON·TREE·ANALYZE), PostgreSQL(JSON·텍스트), Oracle(DBMS_XPLAN·ALLSTATS), MongoDB·DocumentDB(explain) 결과를 트리로 보고 병목·풀스캔·추정 오차를 표시 |
 | 데드락 분석 | MySQL(InnoDB STATUS·에러 로그), PostgreSQL(서버 로그), Oracle(ORA-00060 트레이스)의 데드락을 트랜잭션·락·대기 관계로 보여주고 원인을 설명 — [사용법](deadlock.html) |
 | DDL 검토 | 팀 규칙 파일(YAML)로 CREATE / ALTER / INDEX를 검토해 밑줄과 오른쪽 패널로 표시 — [사용법](ddl-review.html) · [규칙 작성](ddl-rules.html) |

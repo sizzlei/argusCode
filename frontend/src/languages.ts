@@ -6,6 +6,7 @@ import { json, jsonParseLinter } from '@codemirror/lang-json';
 import { yaml } from '@codemirror/lang-yaml';
 import { linter, Diagnostic } from '@codemirror/lint';
 import { formatSql } from './sqlformat';
+import { lintSql } from './sqllint';
 import { sqlTools } from './sqltools';
 
 const sqlToolsExt = sqlTools();
@@ -93,6 +94,37 @@ let ddlLintExt: Extension = [];
 /** Installs (or removes, with []) the DDL review linter. Callers must reconfigure open SQL editors. */
 export function setDdlLint(ext: Extension) {
   ddlLintExt = ext;
+}
+
+// Light SQL syntax check (sqllint.ts): mistakes are boxed like a selection —
+// red for errors, amber for warnings — rather than underlined.
+let sqlLintOn = true;
+/** Turns the SQL syntax check on/off. Callers must reconfigure open SQL editors. */
+export function setSqlLint(on: boolean) {
+  sqlLintOn = on;
+}
+const sqlLintCache = new Map<DialectId, Extension>();
+function sqlLintExt(dialect: DialectId): Extension {
+  if (!sqlLintOn) return [];
+  let ext = sqlLintCache.get(dialect);
+  if (!ext) {
+    ext = linter(
+      (view) => {
+        if (view.state.doc.length > 2_000_000) return [];
+        return lintSql(view.state.doc.toString(), dialect).map((p) => ({
+          from: p.from,
+          to: Math.max(p.to, p.from + 1),
+          severity: p.severity,
+          source: 'SQL 문법',
+          message: p.message,
+          markClass: p.severity === 'error' ? 'cm-sql-bad' : 'cm-sql-warn',
+        }));
+      },
+      { delay: 400 },
+    );
+    sqlLintCache.set(dialect, ext);
+  }
+  return ext;
 }
 
 /** Replaces the completion schema. Callers must reconfigure open SQL editors. */
@@ -234,7 +266,7 @@ export function languageExtension(id: LangId, dialect: DialectId, large = false)
   if (large) return []; // large-file mode: plain text, no parsing
   switch (id) {
     case 'sql':
-      return [sqlSupport(dialect), sqlToolsExt, ddlLintExt];
+      return [sqlSupport(dialect), sqlToolsExt, ddlLintExt, sqlLintExt(dialect)];
     case 'markdown':
       return mdSupport;
     case 'json':

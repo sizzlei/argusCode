@@ -61,6 +61,8 @@ export interface Settings {
   updateCheck: boolean;
   /** Built-in online DDL impact check in the DDL review. */
   ddlImpact: boolean;
+  /** Light SQL syntax check (boxes around mistakes). */
+  sqlLint: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -82,6 +84,7 @@ export const DEFAULT_SETTINGS: Settings = {
   theme: 'dark',
   updateCheck: true,
   ddlImpact: true,
+  sqlLint: true,
 };
 
 export interface GroupSession {
