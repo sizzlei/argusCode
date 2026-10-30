@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { decodeField, looksLikeDeadlock, parseDeadlocks } from '../src/deadlock.ts';
 
-const fx = (name: string) => readFileSync(new URL('./fixtures/deadlock/' + name, import.meta.url), 'utf8');
+const fx = (name: string) =>
+  readFileSync(new URL('./fixtures/deadlock/' + name, import.meta.url), 'utf8').replace(/\r\n/g, '\n'); // CRLF on Windows checkouts
 
 test('MySQL 8: transactions, record keys, edges, victim, hints', () => {
   const [d, ...rest] = parseDeadlocks(fx('mysql8.txt'));

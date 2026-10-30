@@ -15,7 +15,7 @@ import {
 } from '../src/keybindings.ts';
 
 test('menu defaults match internal/keymap/keymap.go', () => {
-  const go = readFileSync(new URL('../../internal/keymap/keymap.go', import.meta.url), 'utf8');
+  const go = readFileSync(new URL('../../internal/keymap/keymap.go', import.meta.url), 'utf8').replace(/\r\n/g, '\n'); // CRLF on Windows checkouts
   const block = go.slice(go.indexOf('var Defaults'), go.indexOf('\n}\n', go.indexOf('var Defaults')));
   const goMap: Record<string, string> = {};
   for (const m of block.matchAll(/"([^"]+)":\s*"((?:[^"\\]|\\.)*)"/g)) goMap[m[1]] = m[2].replace(/\\\\/g, '\\');
