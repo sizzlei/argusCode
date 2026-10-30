@@ -5,6 +5,17 @@ import { api, DOCS_URL, isMac, openUrl } from './backend';
 import { DIALECTS, DialectId } from './languages';
 import { h, setModalOpen } from './ui';
 import { DEFAULT_SETTINGS, Settings } from './workbench';
+import {
+  COMMANDS,
+  comboOf,
+  diffFromDefaults,
+  effectiveKeys,
+  isAssignable,
+  keyCapture,
+  keyLabel,
+  RESERVED_KEYS,
+  shortcut,
+} from './keybindings';
 
 export type SettingKey = keyof Settings;
 
@@ -26,12 +37,13 @@ export interface DdlHooks {
   reload(): Promise<void>;
 }
 
-type Section = 'editor' | 'sql' | 'ddl' | 'files' | 'about';
+type Section = 'editor' | 'sql' | 'ddl' | 'files' | 'keys' | 'about';
 const SECTIONS: [Section, string][] = [
   ['editor', '편집기'],
   ['sql', 'SQL'],
   ['ddl', 'DDL 검토'],
   ['files', '파일'],
+  ['keys', '단축키'],
   ['about', '정보'],
 ];
 
@@ -103,7 +115,11 @@ export function openSettings(hooks: SettingsHooks) {
   const build: Record<Section, () => HTMLElement[]> = {
     editor: () => [
       row('글꼴', '비워 두면 기본 고정폭 글꼴. 쉼표로 여러 개 지정', text('fontFamily', 'D2Coding, JetBrains Mono')),
-      row('글꼴 크기', isMac ? '⌘+ / ⌘- 로도 조절' : 'Ctrl++ / Ctrl+- 로도 조절', number('fontSize', 9, 28, 'px')),
+      row(
+        '글꼴 크기',
+        shortcut('zoom.in') ? `${shortcut('zoom.in')} / ${shortcut('zoom.out')} 로도 조절` : null,
+        number('fontSize', 9, 28, 'px'),
+      ),
       row(
         '들여쓰기',
         '문서 정렬과 Tab 키에 사용',
@@ -135,7 +151,7 @@ export function openSettings(hooks: SettingsHooks) {
       ),
       row(
         '정렬 스타일',
-        `문서 정렬(${isMac ? '⇧⌥F' : 'Shift+Alt+F'}) 결과. 키워드 대소문자는 입력한 그대로 유지`,
+        `문서 정렬${shortcut('format') ? `(${shortcut('format')})` : ''} 결과. 키워드 대소문자는 입력한 그대로 유지`,
         select('sqlStyle', [
           ['left', '왼쪽 정렬'],
           ['river', '리버 (키워드 오른쪽 맞춤)'],
@@ -241,11 +257,12 @@ export function openSettings(hooks: SettingsHooks) {
           'p',
           { class: 'set-intro' },
           '대상 DB는 상태 표시줄의 SQL 방언(MySQL · PostgreSQL · Oracle)을 따릅니다. 오른쪽 검토 패널은 ' +
-            (isMac ? '⇧⌘M' : 'Ctrl+Shift+M') +
-            ' (상태 표시줄 DDL 항목 클릭), 다음·이전 문제는 F8 / ⇧F8. 규칙 파일을 저장하면 바로 다시 적용됩니다.',
+            (shortcut('problems.open') ? shortcut('problems.open') + ' 또는 ' : '') +
+            '상태 표시줄 DDL 항목 클릭, 다음·이전 문제는 F8 / ⇧F8. 규칙 파일을 저장하면 바로 다시 적용됩니다.',
         ),
       ];
     },
+    keys: () => keySection(hooks, () => show('keys')),
     about: () => {
       const startup = h('b', {}, hooks.startupMs ? hooks.startupMs + ' ms' : '-');
       const dir = h('code', { class: 'set-path' }, '…');
@@ -269,7 +286,7 @@ export function openSettings(hooks: SettingsHooks) {
         ),
         row('시작 시간', '실행부터 첫 화면까지', startup),
         row('설정 저장 위치', 'session.json — 설정과 열린 탭, 최근 항목', dir),
-        row('초기화', '편집기·SQL·파일 설정을 기본값으로 (열린 탭은 유지)', reset),
+        row('초기화', '편집기·SQL·파일·단축키 설정을 기본값으로 (열린 탭과 DDL 규칙 파일은 유지)', reset),
       ];
     },
   };
@@ -309,6 +326,7 @@ export function openSettings(hooks: SettingsHooks) {
     }
   };
   function close() {
+    stopCapture?.();
     open = false;
     setModalOpen(false);
     overlay.remove();
@@ -320,6 +338,164 @@ export function openSettings(hooks: SettingsHooks) {
   document.body.append(overlay);
   document.addEventListener('keydown', onKey, true);
   navBtns.get(lastSection)?.focus();
+}
+
+// ---- shortcuts -----------------------------------------------------------------------
+
+/** Ends an in-progress shortcut recording (set while recording). */
+let stopCapture: (() => void) | null = null;
+
+function keySection(hooks: SettingsHooks, rerender: () => void): HTMLElement[] {
+  const keys = () => effectiveKeys(hooks.settings.keybindings);
+  const save = (k: Record<string, string>) => hooks.apply('keybindings', diffFromDefaults(k));
+  const notice = h('div', { class: 'set-key-notice' });
+  const say = (text: string, warn = false) => {
+    notice.textContent = text;
+    notice.className = 'set-key-notice' + (warn ? ' warn' : '') + (text ? ' show' : '');
+  };
+  const filter = h('input', {
+    type: 'search',
+    class: 'set-text set-key-filter',
+    placeholder: '명령 또는 단축키 검색',
+    spellcheck: 'false',
+  }) as HTMLInputElement;
+  const list = h('div', { class: 'set-keys' });
+
+  const record = (id: string, btn: HTMLElement) => {
+    if (btn.classList.contains('recording')) return;
+    stopCapture?.();
+    btn.classList.add('recording');
+    btn.textContent = '키 조합을 누르세요…';
+    say('Esc: 취소 · ⌫(Backspace): 단축키 지우기');
+    keyCapture.active = true;
+    const onKey = (e: KeyboardEvent) => {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      if (e.isComposing) return;
+      const plain = !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey;
+      if (e.key === 'Escape' && plain) return stop(true);
+      if ((e.key === 'Backspace' || e.key === 'Delete') && plain) {
+        const k = keys();
+        k[id] = '';
+        save(k);
+        stop(false);
+        say(`'${label(id)}' 단축키를 지웠습니다.`);
+        return;
+      }
+      const combo = comboOf(e);
+      if (!combo) return; // modifier only — keep waiting
+      if (!isAssignable(combo)) {
+        say(
+          `${keyLabel(combo)}는 글자 입력용입니다. ${isMac ? '⌘ / ⌥ / ⌃' : 'Ctrl / Alt'}와 함께 누르거나 F 키를 쓰세요.`,
+          true,
+        );
+        return;
+      }
+      const k = keys();
+      const msgs: string[] = [];
+      for (const c of COMMANDS) {
+        if (c.id !== id && k[c.id] === combo) {
+          k[c.id] = '';
+          msgs.push(`'${c.label}'에서 쓰던 ${keyLabel(combo)}를 해제했습니다.`);
+        }
+      }
+      if (RESERVED_KEYS[combo])
+        msgs.push(`${keyLabel(combo)}는 편집기의 '${RESERVED_KEYS[combo]}' 대신 이 명령을 실행합니다.`);
+      k[id] = combo;
+      save(k);
+      stop(false);
+      say(msgs.join(' '), msgs.length > 0);
+    };
+    const onDown = (e: MouseEvent) => {
+      if (e.target !== btn) stop(true);
+    };
+    const stop = (cancelled: boolean) => {
+      window.removeEventListener('keydown', onKey, true);
+      window.removeEventListener('mousedown', onDown, true);
+      // Let the key-up of the recorded combo pass before commands run again.
+      setTimeout(() => (keyCapture.active = false), 200);
+      stopCapture = null;
+      if (cancelled) say('');
+      paint();
+    };
+    stopCapture = () => stop(true);
+    window.addEventListener('keydown', onKey, true);
+    window.addEventListener('mousedown', onDown, true);
+  };
+
+  const label = (id: string) => COMMANDS.find((c) => c.id === id)?.label ?? id;
+
+  const paint = () => {
+    const k = keys();
+    const q = filter.value.trim().toLowerCase();
+    list.replaceChildren();
+    let group = '';
+    for (const c of COMMANDS) {
+      const combo = k[c.id] ?? '';
+      const shown = keyLabel(combo);
+      if (q && !(c.label.toLowerCase().includes(q) || c.group.includes(q) || shown.toLowerCase().includes(q))) continue;
+      if (c.group !== group) {
+        group = c.group;
+        list.append(h('div', { class: 'set-keys-group' }, group));
+      }
+      const btn = h('button', { class: 'set-key' + (combo ? '' : ' empty'), title: '눌러서 바꾸기' }, shown || '없음');
+      btn.addEventListener('click', () => record(c.id, btn));
+      const changed = combo !== c.key;
+      const reset = h(
+        'button',
+        {
+          class: 'set-key-reset' + (changed ? '' : ' hidden'),
+          title: c.key ? `기본값 ${keyLabel(c.key)}로 되돌리기` : '기본값(없음)으로 되돌리기',
+        },
+        '↺',
+      );
+      reset.addEventListener('click', () => {
+        const kk = keys();
+        kk[c.id] = c.key;
+        // The default may be taken by another command now.
+        const other = c.key ? COMMANDS.find((o) => o.id !== c.id && kk[o.id] === c.key) : undefined;
+        if (other) {
+          kk[other.id] = '';
+          say(`'${other.label}'에서 쓰던 ${keyLabel(c.key)}를 해제했습니다.`, true);
+        } else say('');
+        save(kk);
+        paint();
+      });
+      list.append(
+        h(
+          'div',
+          { class: 'set-key-row' + (changed ? ' changed' : '') },
+          h('span', { class: 'set-key-label' }, c.label),
+          btn,
+          reset,
+        ),
+      );
+    }
+    if (!list.childElementCount) list.append(h('div', { class: 'set-hint' }, '일치하는 명령이 없습니다.'));
+  };
+  filter.addEventListener('input', paint);
+  paint();
+
+  const resetAll = h('button', { class: 'btn small' }, '모두 기본값으로');
+  resetAll.addEventListener('click', () => {
+    hooks.apply('keybindings', {});
+    say('');
+    rerender();
+  });
+  return [
+    h(
+      'p',
+      { class: 'set-intro' },
+      '단축키 칸을 누른 뒤 새 키 조합을 누르세요. 메뉴와 우클릭 메뉴에도 바로 반영됩니다. ' +
+        '이미 다른 명령이 쓰던 조합이면 그 명령의 단축키는 해제됩니다. ' +
+        '복사·붙여넣기·실행 취소·찾기 같은 편집기 기본 키와 편집 그룹 이동(' +
+        (isMac ? '⌘1~4' : 'Ctrl+1~4') +
+        ')은 그대로 동작합니다.',
+    ),
+    h('div', { class: 'set-key-tools' }, filter, resetAll),
+    notice,
+    list,
+  ];
 }
 
 /** Small static sample so the style choice is visible without formatting a file. */

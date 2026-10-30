@@ -9,6 +9,7 @@ import { copyText, isMac, readText } from './backend';
 import { canFormat, LangId } from './languages';
 import { contextMenu, MenuItem, toast } from './ui';
 import { convertToInList, goToDefinition, resolveAt, selectStatement } from './sqltools';
+import { shortcut } from './keybindings';
 
 export interface EditorMenuHooks {
   langOf(view: EditorView): LangId | null;
@@ -90,7 +91,7 @@ export function showEditorMenu(view: EditorView, e: MouseEvent, hooks: EditorMen
   if (lang && canFormat(lang)) {
     items.push({
       label: hasSel ? '선택 영역 정렬' : '문서 정렬',
-      hint: k('⇧⌥F', 'Shift+Alt+F'),
+      hint: shortcut('format'),
       action: () => hooks.run('format'),
     });
   }
@@ -119,24 +120,25 @@ export function showEditorMenu(view: EditorView, e: MouseEvent, hooks: EditorMen
     items.push(
       { separator: true, label: '' },
       lang === 'json'
-        ? { label: 'YAML로 변환 (새 탭)', action: () => hooks.run('data.convert') }
-        : { label: 'JSON으로 변환 (새 탭)', action: () => hooks.run('data.convert') },
-      { label: '키 이름순 정렬', action: () => hooks.run('data.sortKeys') },
+        ? { label: 'YAML로 변환 (새 탭)', hint: shortcut('data.convert'), action: () => hooks.run('data.convert') }
+        : { label: 'JSON으로 변환 (새 탭)', hint: shortcut('data.convert'), action: () => hooks.run('data.convert') },
+      { label: '키 이름순 정렬', hint: shortcut('data.sortKeys'), action: () => hooks.run('data.sortKeys') },
     );
-    if (lang === 'json') items.push({ label: '한 줄로 압축', action: () => hooks.run('data.minify') });
+    if (lang === 'json')
+      items.push({ label: '한 줄로 압축', hint: shortcut('data.minify'), action: () => hooks.run('data.minify') });
   }
   items.push(
     { separator: true, label: '' },
     { label: '찾기 / 바꾸기', hint: k('⌘F', 'Ctrl+F'), action: () => openSearchPanel(view) },
     { label: '줄로 이동…', hint: k('⌥⌘G', 'Ctrl+Alt+G'), action: () => gotoLine(view) },
-    { label: '폴더에서 찾기', hint: k('⇧⌘F', 'Ctrl+Shift+F'), action: () => hooks.run('view.search') },
+    { label: '폴더에서 찾기', hint: shortcut('view.search'), action: () => hooks.run('view.search') },
     { separator: true, label: '' },
-    { label: '오른쪽으로 분할', hint: k('⌘\\', 'Ctrl+\\'), action: () => hooks.run('pane.split') },
+    { label: '오른쪽으로 분할', hint: shortcut('pane.split'), action: () => hooks.run('pane.split') },
   );
   if (lang === 'json' || lang === 'text' || lang === 'sql' || lang === 'javascript') {
     items.push({
       label: '실행계획 / 데드락 보기',
-      hint: k('⌥⌘E', 'Ctrl+Alt+E'),
+      hint: shortcut('plan.toggle'),
       action: () => hooks.run('plan.toggle'),
     });
   }
@@ -149,15 +151,16 @@ export function showEditorMenu(view: EditorView, e: MouseEvent, hooks: EditorMen
   ) {
     items.push({
       label: hasSel ? '선택 영역을 mongosh 쿼리로 변환 (새 탭)' : 'mongosh 쿼리로 변환 (새 탭)',
+      hint: shortcut('mongo.toShell'),
       action: () => hooks.run('mongo.toShell'),
     });
   }
   items.push(
-    { label: '저장된 버전과 비교', action: () => hooks.run('diff.saved') },
-    { label: '다른 탭과 비교…', action: () => hooks.run('diff.tabs') },
+    { label: '저장된 버전과 비교', hint: shortcut('diff.saved'), action: () => hooks.run('diff.saved') },
+    { label: '다른 탭과 비교…', hint: shortcut('diff.tabs'), action: () => hooks.run('diff.tabs') },
   );
   if (lang === 'markdown') {
-    items.push({ label: 'Markdown 미리보기', hint: k('⇧⌘V', 'Ctrl+Shift+V'), action: () => hooks.run('md.preview') });
+    items.push({ label: 'Markdown 미리보기', hint: shortcut('md.preview'), action: () => hooks.run('md.preview') });
   }
   contextMenu(e.clientX, e.clientY, items);
 }

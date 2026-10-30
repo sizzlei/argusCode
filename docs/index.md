@@ -73,4 +73,6 @@ MySQL `EXPLAIN ANALYZE` 결과를 붙여 넣고 `⌥⌘E`를 누르면 오른쪽
 | 개요 | `⌥⌘O` | `Ctrl+Alt+O` |
 | 설정 | `⌘,` | `Ctrl+,` |
 
+단축키는 설정(`⌘,` / `Ctrl+,`) → **단축키**에서 바꿀 수 있습니다. 칸을 누르고 새 조합을 누르면 바로 메뉴에도 반영됩니다.
+
 전체 기능과 단축키는 [README](https://github.com/sizzlei/argusCode#readme)에 있습니다.

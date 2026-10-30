@@ -4,6 +4,7 @@ import (
 	"embed"
 	goruntime "runtime"
 
+	"github.com/sizzlei/argusCode/internal/keymap"
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/menu"
 	"github.com/wailsapp/wails/v2/pkg/menu/keys"
@@ -62,6 +63,22 @@ func buildMenu(app *App) *menu.Menu {
 	emit := func(cmd string) func(*menu.CallbackData) {
 		return func(*menu.CallbackData) { runtime.EventsEmit(app.ctx, "cmd", cmd) }
 	}
+	// Shortcut of a command: the user's binding (Settings → 단축키) or the default.
+	// Windows shows it as text only (see keymap.Label); the frontend handles the keys.
+	key := func(cmd string) *keys.Accelerator {
+		if goruntime.GOOS == "windows" {
+			return nil
+		}
+		return keymap.Accelerator(app.keyFor(cmd))
+	}
+	label := func(text, cmd string) string {
+		if goruntime.GOOS == "windows" {
+			if l := keymap.Label(app.keyFor(cmd)); l != "" {
+				return text + "\t" + l
+			}
+		}
+		return text
+	}
 
 	m := menu.NewMenu()
 	if goruntime.GOOS == "darwin" {
@@ -69,17 +86,17 @@ func buildMenu(app *App) *menu.Menu {
 	}
 
 	file := m.AddSubmenu("파일")
-	file.AddText("새 파일", keys.CmdOrCtrl("n"), emit("file.new"))
-	file.AddText("파일 열기…", keys.CmdOrCtrl("o"), emit("file.open"))
-	file.AddText("폴더 열기…", keys.Combo("o", keys.CmdOrCtrlKey, keys.ShiftKey), emit("folder.open"))
+	file.AddText(label("새 파일", "file.new"), key("file.new"), emit("file.new"))
+	file.AddText(label("파일 열기…", "file.open"), key("file.open"), emit("file.open"))
+	file.AddText(label("폴더 열기…", "folder.open"), key("folder.open"), emit("folder.open"))
 	file.AddSeparator()
-	file.AddText("저장", keys.CmdOrCtrl("s"), emit("file.save"))
-	file.AddText("다른 이름으로 저장…", keys.Combo("s", keys.CmdOrCtrlKey, keys.ShiftKey), emit("file.saveAs"))
-	file.AddText("모두 저장", keys.Combo("s", keys.CmdOrCtrlKey, keys.OptionOrAltKey), emit("file.saveAll"))
+	file.AddText(label("저장", "file.save"), key("file.save"), emit("file.save"))
+	file.AddText(label("다른 이름으로 저장…", "file.saveAs"), key("file.saveAs"), emit("file.saveAs"))
+	file.AddText(label("모두 저장", "file.saveAll"), key("file.saveAll"), emit("file.saveAll"))
 	file.AddSeparator()
-	file.AddText("탭 닫기", keys.CmdOrCtrl("w"), emit("tab.close"))
+	file.AddText(label("탭 닫기", "tab.close"), key("tab.close"), emit("tab.close"))
 	file.AddSeparator()
-	file.AddText("설정…", keys.CmdOrCtrl(","), emit("app.settings"))
+	file.AddText(label("설정…", "app.settings"), key("app.settings"), emit("app.settings"))
 	if goruntime.GOOS != "darwin" {
 		file.AddSeparator()
 		file.AddText("종료", keys.CmdOrCtrl("q"), func(*menu.CallbackData) { runtime.Quit(app.ctx) })
@@ -93,27 +110,27 @@ func buildMenu(app *App) *menu.Menu {
 	}
 
 	view := m.AddSubmenu("보기")
-	view.AddText("빠른 열기…", keys.CmdOrCtrl("p"), emit("quickOpen"))
-	view.AddText("탐색기", keys.Combo("e", keys.CmdOrCtrlKey, keys.ShiftKey), emit("view.explorer"))
-	view.AddText("폴더에서 찾기…", keys.Combo("f", keys.CmdOrCtrlKey, keys.ShiftKey), emit("view.search"))
-	view.AddText("사이드바 보이기/숨기기", keys.CmdOrCtrl("b"), emit("sidebar.toggle"))
+	view.AddText(label("빠른 열기…", "quickOpen"), key("quickOpen"), emit("quickOpen"))
+	view.AddText(label("탐색기", "view.explorer"), key("view.explorer"), emit("view.explorer"))
+	view.AddText(label("폴더에서 찾기…", "view.search"), key("view.search"), emit("view.search"))
+	view.AddText(label("사이드바 보이기/숨기기", "sidebar.toggle"), key("sidebar.toggle"), emit("sidebar.toggle"))
 	view.AddSeparator()
-	view.AddText("오른쪽으로 분할", keys.CmdOrCtrl("\\"), emit("pane.split"))
-	view.AddText("다음 편집 그룹으로 이동", keys.CmdOrCtrl("k"), emit("pane.next"))
+	view.AddText(label("오른쪽으로 분할", "pane.split"), key("pane.split"), emit("pane.split"))
+	view.AddText(label("다음 편집 그룹으로 이동", "pane.next"), key("pane.next"), emit("pane.next"))
 	view.AddSeparator()
-	view.AddText("Markdown 미리보기", keys.Combo("v", keys.CmdOrCtrlKey, keys.ShiftKey), emit("md.preview"))
-	view.AddText("실행계획 / 데드락 보기", keys.Combo("e", keys.CmdOrCtrlKey, keys.OptionOrAltKey), emit("plan.toggle"))
-	view.AddText("mongosh 쿼리로 변환", nil, emit("mongo.toShell"))
-	view.AddText("DDL 검토 패널", keys.Combo("m", keys.CmdOrCtrlKey, keys.ShiftKey), emit("problems.open"))
-	view.AddText("문서 정렬", keys.Combo("f", keys.ShiftKey, keys.OptionOrAltKey), emit("format"))
-	view.AddText("개요", keys.Combo("o", keys.CmdOrCtrlKey, keys.OptionOrAltKey), emit("view.outline"))
+	view.AddText(label("Markdown 미리보기", "md.preview"), key("md.preview"), emit("md.preview"))
+	view.AddText(label("실행계획 / 데드락 보기", "plan.toggle"), key("plan.toggle"), emit("plan.toggle"))
+	view.AddText(label("mongosh 쿼리로 변환", "mongo.toShell"), key("mongo.toShell"), emit("mongo.toShell"))
+	view.AddText(label("DDL 검토 패널", "problems.open"), key("problems.open"), emit("problems.open"))
+	view.AddText(label("문서 정렬", "format"), key("format"), emit("format"))
+	view.AddText(label("개요", "view.outline"), key("view.outline"), emit("view.outline"))
 	view.AddSeparator()
-	view.AddText("저장된 버전과 비교", nil, emit("diff.saved"))
-	view.AddText("다른 탭과 비교…", nil, emit("diff.tabs"))
+	view.AddText(label("저장된 버전과 비교", "diff.saved"), key("diff.saved"), emit("diff.saved"))
+	view.AddText(label("다른 탭과 비교…", "diff.tabs"), key("diff.tabs"), emit("diff.tabs"))
 	view.AddSeparator()
-	view.AddText("확대", keys.CmdOrCtrl("="), emit("zoom.in"))
-	view.AddText("축소", keys.CmdOrCtrl("-"), emit("zoom.out"))
-	view.AddText("원래 크기", keys.CmdOrCtrl("0"), emit("zoom.reset"))
+	view.AddText(label("확대", "zoom.in"), key("zoom.in"), emit("zoom.in"))
+	view.AddText(label("축소", "zoom.out"), key("zoom.out"), emit("zoom.out"))
+	view.AddText(label("원래 크기", "zoom.reset"), key("zoom.reset"), emit("zoom.reset"))
 
 	if goruntime.GOOS == "darwin" {
 		m.Append(menu.WindowMenu())

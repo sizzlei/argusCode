@@ -1530,6 +1530,95 @@ button.sb-item:hover {
   font-size: 12px;
 }
 
+/* ---- settings: shortcuts ------------------------------------------------- */
+.set-key-tools {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin: 4px 0 8px;
+}
+.set-key-filter {
+  flex: 1;
+}
+.set-key-notice {
+  display: none;
+  font-size: 12px;
+  color: var(--fg-dim);
+  margin: 0 0 8px;
+  line-height: 1.5;
+}
+.set-key-notice.show {
+  display: block;
+}
+.set-key-notice.warn {
+  color: #f4be6e;
+}
+.set-keys-group {
+  margin: 12px 0 4px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--fg-faint);
+  letter-spacing: 0.02em;
+}
+.set-key-row {
+  display: grid;
+  grid-template-columns: 1fr 170px 24px;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 6px;
+  border-radius: 4px;
+}
+.set-key-row:hover {
+  background: var(--bg-hover);
+}
+.set-key-row.changed .set-key-label::after {
+  content: ' •';
+  color: var(--accent);
+}
+.set-key {
+  height: 24px;
+  padding: 0 8px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: var(--bg-editor);
+  color: #e3e5ea;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+}
+.set-key:hover {
+  border-color: var(--accent-dim);
+}
+.set-key.empty {
+  color: var(--fg-faint);
+}
+.set-key.recording {
+  border-color: var(--accent);
+  color: var(--accent);
+  font-family: var(--font-ui);
+}
+.set-key-reset {
+  width: 24px;
+  height: 24px;
+  border-radius: 4px;
+  color: var(--fg-dim);
+  background: none;
+  border: none;
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+}
+.set-key-reset:hover {
+  background: var(--bg-active);
+  color: var(--fg);
+}
+.set-key-reset.hidden {
+  visibility: hidden;
+}
+
 /* ---- deadlock view (shares the plan panel) ------------------------------- */
 .dl-view .plan-head {
   position: static;

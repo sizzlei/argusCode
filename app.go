@@ -4,10 +4,13 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"reflect"
+	goruntime "runtime"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	"github.com/sizzlei/argusCode/internal/keymap"
 	"github.com/sizzlei/argusCode/internal/platform"
 	"github.com/sizzlei/argusCode/internal/sqlschema"
 	"github.com/sizzlei/argusCode/internal/watch"
@@ -27,6 +30,10 @@ type App struct {
 	dirty atomic.Bool
 
 	watcher *watch.Watcher
+
+	// keys holds the user's menu shortcuts (command → combo, "" = none);
+	// missing commands use keymap.Defaults.
+	keys map[string]string
 
 	searchMu     sync.Mutex
 	searchCancel context.CancelFunc
@@ -90,6 +97,28 @@ func (a *App) SettingsDir() string {
 }
 
 // SetDirty is called by the frontend whenever the unsaved state changes.
+// SetKeybindings applies the user's shortcuts to the native menu
+// (command → combo such as "mod+shift+m"; "" removes the shortcut).
+func (a *App) SetKeybindings(binds map[string]string) {
+	if reflect.DeepEqual(binds, a.keys) {
+		return
+	}
+	a.keys = binds
+	// Rebuilding the menu at runtime crashes Wails' GTK backend; on Linux the
+	// menu keeps its labels and the frontend still handles the new keys.
+	if a.ctx == nil || goruntime.GOOS == "linux" {
+		return
+	}
+	runtime.MenuSetApplicationMenu(a.ctx, buildMenu(a))
+}
+
+func (a *App) keyFor(cmd string) string {
+	if c, ok := a.keys[cmd]; ok {
+		return c
+	}
+	return keymap.Defaults[cmd]
+}
+
 func (a *App) SetDirty(dirty bool) { a.dirty.Store(dirty) }
 
 // ---- lifecycle helpers ---------------------------------------------------

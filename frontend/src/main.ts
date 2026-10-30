@@ -37,7 +37,20 @@ import { initDiff, openDiff } from './diff';
 import { setNavigator, setSchemaIndex } from './sqltools';
 import { ask, contextMenu, errText, h, isModalOpen, toast } from './ui';
 import { DEFAULT_SETTINGS, GroupSession, Settings, Workbench } from './workbench';
+import {
+  comboOf,
+  DEFAULT_KEYS,
+  effectiveKeys,
+  keyCapture,
+  keymapOf,
+  menuBindings,
+  setBindings,
+  setPlatform,
+  shortcut,
+} from './keybindings';
 import { openSettings } from './settings';
+
+setPlatform(isMac);
 
 // ---- session model -----------------------------------------------------------
 
@@ -99,22 +112,16 @@ const editors = h('main', { id: 'editors' });
 const statusbar = h('footer', { id: 'statusbar' });
 document.getElementById('app')!.append(h('div', { id: 'workbench' }, sidebar, sideResizer, editors), statusbar);
 
-/** Formats a shortcut for display, e.g. key('shift', 'O') → ⇧⌘O / Ctrl+Shift+O. */
-function key(...parts: string[]): string {
-  const k = parts.pop()!;
-  if (isMac) {
-    const sym: Record<string, string> = { shift: '⇧', alt: '⌥' };
-    return parts.map((p) => sym[p]).join('') + (parts.includes('nomod') ? '' : '⌘') + k;
-  }
-  const name: Record<string, string> = { shift: 'Shift+', alt: 'Alt+' };
-  return (parts.includes('nomod') ? '' : 'Ctrl+') + parts.map((p) => name[p] ?? '').join('') + k;
-}
-
 let startupMs = 0;
 
 function welcome(): HTMLElement {
   const action = (label: string, key: string, cmd: string) =>
-    h('button', { class: 'welcome-action', onclick: () => run(cmd) }, h('span', {}, label), h('kbd', {}, key));
+    h(
+      'button',
+      { class: 'welcome-action', onclick: () => run(cmd) },
+      h('span', {}, label),
+      key ? h('kbd', {}, key) : null,
+    );
   const recents = session.recentFolders.slice(0, 6);
   return h(
     'div',
@@ -128,10 +135,10 @@ function welcome(): HTMLElement {
         'div',
         {},
         h('h3', {}, '시작'),
-        action('폴더 열기', key('shift', 'O'), 'folder.open'),
-        action('파일 열기', key('O'), 'file.open'),
-        action('새 SQL 파일', key('N'), 'file.new'),
-        action('빠른 열기', key('P'), 'quickOpen'),
+        action('폴더 열기', shortcut('folder.open'), 'folder.open'),
+        action('파일 열기', shortcut('file.open'), 'file.open'),
+        action('새 SQL 파일', shortcut('file.new'), 'file.new'),
+        action('빠른 열기', shortcut('quickOpen'), 'quickOpen'),
       ),
       h(
         'div',
@@ -159,16 +166,19 @@ function welcome(): HTMLElement {
     h(
       'div',
       { class: 'welcome-keys' },
-      keyHint('분할', key('\\')),
-      keyHint('저장', key('S')),
-      keyHint('정렬', key('nomod', 'shift', 'alt', 'F')),
-      keyHint('MD 미리보기', key('shift', 'V')),
-      keyHint('사이드바', key('B')),
-      keyHint('그룹 이동', key('K')),
+      keyHint('분할', 'pane.split'),
+      keyHint('저장', 'file.save'),
+      keyHint('정렬', 'format'),
+      keyHint('MD 미리보기', 'md.preview'),
+      keyHint('사이드바', 'sidebar.toggle'),
+      keyHint('그룹 이동', 'pane.next'),
     ),
   );
 }
-const keyHint = (label: string, key: string) => h('span', {}, label, ' ', h('kbd', {}, key));
+const keyHint = (label: string, cmd: string) => {
+  const k = shortcut(cmd);
+  return k ? h('span', {}, label, ' ', h('kbd', {}, k)) : null;
+};
 
 const wb = new Workbench(editors, session.settings, welcome);
 
@@ -334,6 +344,10 @@ function applySetting<K extends keyof Settings>(key: K, value: Settings[K]) {
     case 'watch':
       st.watch = value as boolean;
       updateWatchSoon();
+      break;
+    case 'keybindings':
+      st.keybindings = value as Settings['keybindings'];
+      applyKeybindings();
       break;
     case 'autoSave':
       st.autoSave = value as Settings['autoSave'];
@@ -661,6 +675,7 @@ function cycleTab(dir: number) {
 // (depending on platform); run each command at most once per 150 ms.
 const lastRun = new Map<string, number>();
 function run(cmd: string) {
+  if (keyCapture.active) return; // recording a shortcut in the settings
   if (isModalOpen() && cmd !== 'file.save') return;
   const now = performance.now();
   if (now - (lastRun.get(cmd) ?? -1e9) < 150) return;
@@ -672,62 +687,28 @@ function run(cmd: string) {
     .catch((e) => toast(errText(e), 'error'));
 }
 
-const keymap: [string, string][] = [
-  ['mod+,', 'app.settings'],
-  ['mod+shift+m', 'problems.open'],
-  ['mod+n', 'file.new'],
-  ['mod+o', 'file.open'],
-  ['mod+shift+o', 'folder.open'],
-  ['mod+s', 'file.save'],
-  ['mod+shift+s', 'file.saveAs'],
-  ['mod+alt+s', 'file.saveAll'],
-  ['mod+w', 'tab.close'],
-  ['mod+p', 'quickOpen'],
-  ['mod+b', 'sidebar.toggle'],
-  ['mod+shift+e', 'view.explorer'],
-  ['mod+shift+f', 'view.search'],
-  ['mod+alt+o', 'view.outline'],
-  ['mod+alt+e', 'plan.toggle'],
-  ['mod+\\', 'pane.split'],
-  ['mod+k', 'pane.next'],
-  ['mod+shift+v', 'md.preview'],
-  ['shift+alt+f', 'format'],
-  ['mod+=', 'zoom.in'],
-  ['mod++', 'zoom.in'],
-  ['mod+-', 'zoom.out'],
-  ['mod+0', 'zoom.reset'],
-  ['ctrl+tab', 'tab.next'],
-  ['ctrl+shift+tab', 'tab.prev'],
-];
+let keymap = keymapOf(DEFAULT_KEYS);
 
-function comboOf(e: KeyboardEvent): string {
-  const parts: string[] = [];
-  if (isMac ? e.metaKey : e.ctrlKey) parts.push('mod');
-  if (isMac && e.ctrlKey) parts.push('ctrl');
-  if (e.shiftKey) parts.push('shift');
-  if (e.altKey) parts.push('alt');
-  let key = e.key.length === 1 ? e.key.toLowerCase() : e.key.toLowerCase();
-  // Use the physical key for letters/digits so Alt/Shift/Korean IME don't change it.
-  if (/^Key[A-Z]$/.test(e.code)) key = e.code.slice(3).toLowerCase();
-  else if (/^Digit\d$/.test(e.code)) key = e.code.slice(5);
-  else if (e.code === 'Backslash') key = '\\';
-  else if (e.code === 'Equal') key = '=';
-  else if (e.code === 'Minus') key = '-';
-  parts.push(key);
-  // ctrl+tab on Windows comes through as "mod+tab"
-  const combo = parts.join('+');
-  return !isMac ? combo.replace(/^mod\+(shift\+)?tab$/, 'ctrl+$1tab') : combo;
+/** Applies the shortcut settings to the keydown handler, hints and the native menu. */
+function applyKeybindings() {
+  const keys = effectiveKeys(session.settings.keybindings);
+  setBindings(keys);
+  keymap = keymapOf(keys);
+  api.SetKeybindings(menuBindings(keys)).catch(() => {});
+  wb.refreshEmpty();
 }
 
 document.addEventListener(
   'keydown',
   (e) => {
+    if (keyCapture.active) return;
     const combo = comboOf(e);
-    const hit = keymap.find(([k]) => k === combo);
+    if (!combo) return;
+    const hit = keymap.get(combo);
     if (hit) {
       e.preventDefault();
       e.stopPropagation();
-      run(hit[1]);
+      run(hit);
       return;
     }
     // Cmd/Ctrl+1..4 focus editor groups.
@@ -1079,6 +1060,7 @@ async function boot() {
   setFontFamily(session.settings.fontFamily);
   setSqlKeywordCase(session.settings.sqlKeywordCase === 'upper');
   wb.setWhitespace(session.settings.whitespace);
+  applyKeybindings();
   loadDdlRules();
   explorer.supportedOnly = session.supportedOnly;
   searchView = new SearchView(searchPane, wb, () => session.root, session.search, saveSessionSoon);

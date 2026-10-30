@@ -86,6 +86,8 @@ export interface Backend {
   LoadSession(): Promise<string>;
   SaveSession(js: string): Promise<void>;
   SetDirty(dirty: boolean): Promise<void>;
+  /** Native menu shortcuts: command → combo ("" = none). */
+  SetKeybindings(binds: Record<string, string>): Promise<void>;
   Quit(): Promise<void>;
   OpenFolderDialog(): Promise<string>;
   OpenFileDialog(): Promise<string>;
@@ -309,6 +311,7 @@ rules:
       return ok(undefined);
     },
     SetDirty: () => ok(undefined),
+    SetKeybindings: () => ok(undefined),
     Quit: () => ok(undefined),
     OpenFolderDialog: () => ok('/demo'),
     OpenFileDialog: () => ok('/demo/sql/orders.sql'),

@@ -24,6 +24,7 @@ import {
 import { DialectId, LangId, LANGS, langForName, languageExtension, extOf, onLanguageLoaded } from './languages';
 import { ask, contextMenu, errText, h, toast } from './ui';
 import { markUnopenable } from './filetypes';
+import { shortcut } from './keybindings';
 
 const remote = Annotation.define<boolean>();
 const MAX_GROUPS = 4;
@@ -49,6 +50,8 @@ export interface Settings {
   watch: boolean;
   /** YAML ruleset for the DDL review ('' = off). */
   ddlRulesPath: string;
+  /** Shortcut overrides: command → combo ('' = none). Defaults in keybindings.ts. */
+  keybindings: Record<string, string>;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -66,6 +69,7 @@ export const DEFAULT_SETTINGS: Settings = {
   largeFileMB: 3,
   watch: true,
   ddlRulesPath: '',
+  keybindings: {},
 };
 
 export interface GroupSession {
@@ -1041,9 +1045,8 @@ export class Workbench {
 
   private tabMenu(t: Tab, x: number, y: number) {
     const g = t.group;
-    const mod = isMac ? '⌘' : 'Ctrl+';
     contextMenu(x, y, [
-      { label: '닫기', hint: mod + 'W', action: () => this.closeTab(t) },
+      { label: '닫기', hint: shortcut('tab.close'), action: () => this.closeTab(t) },
       {
         label: '다른 탭 닫기',
         action: () => this.closeTabs(g.tabs.filter((x) => x !== t)),
@@ -1056,7 +1059,7 @@ export class Workbench {
       },
       { label: '모두 닫기', action: () => this.closeTabs(g.tabs) },
       { separator: true, label: '' },
-      { label: '오른쪽으로 분할', hint: mod + '\\', action: () => this.split(t) },
+      { label: '오른쪽으로 분할', hint: shortcut('pane.split'), action: () => this.split(t) },
       { label: '오른쪽 그룹으로 이동', action: () => this.moveTab(t, 'new-right'), disabled: g.tabs.length < 2 },
       { separator: true, label: '' },
       {
