@@ -20,6 +20,9 @@ import {
   indentExtension,
   whitespaceExtension,
   Whitespace,
+  themeComp,
+  themeExtension,
+  ThemeId,
 } from './editor';
 import { DialectId, LangId, LANGS, langForName, languageExtension, extOf, onLanguageLoaded } from './languages';
 import { ask, contextMenu, errText, h, toast } from './ui';
@@ -52,6 +55,8 @@ export interface Settings {
   ddlRulesPath: string;
   /** Shortcut overrides: command → combo ('' = none). Defaults in keybindings.ts. */
   keybindings: Record<string, string>;
+  /** App colour theme. */
+  theme: ThemeId;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -70,6 +75,7 @@ export const DEFAULT_SETTINGS: Settings = {
   watch: true,
   ddlRulesPath: '',
   keybindings: {},
+  theme: 'dark',
 };
 
 export interface GroupSession {
@@ -819,6 +825,11 @@ export class Workbench {
     this.settings.indent = n;
     for (const t of this.allTabs()) this.reconfigure(t, indentComp.reconfigure(indentExtension(n)));
     this.emit('cursor');
+  }
+
+  setTheme(theme: ThemeId) {
+    this.settings.theme = theme;
+    for (const t of this.allTabs()) this.reconfigure(t, themeComp.reconfigure(themeExtension(theme)));
   }
 
   setWhitespace(w: Whitespace) {

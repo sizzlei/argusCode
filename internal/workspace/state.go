@@ -1,6 +1,7 @@
 package workspace
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 )
@@ -40,4 +41,18 @@ func SaveState(js string) error {
 	}
 	_, err = WriteFile(filepath.Join(dir, "session.json"), js, "LF", false)
 	return err
+}
+
+// SavedTheme returns the colour theme stored in the session ("dark" when
+// unknown), so the native window can start with matching colours.
+func SavedTheme() string {
+	var st struct {
+		Settings struct {
+			Theme string `json:"theme"`
+		} `json:"settings"`
+	}
+	if json.Unmarshal([]byte(LoadState()), &st) == nil && st.Settings.Theme == "light" {
+		return "light"
+	}
+	return "dark"
 }

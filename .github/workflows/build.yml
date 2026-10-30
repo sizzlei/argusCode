@@ -57,6 +57,40 @@ jobs:
       - name: Build
         run: wails build -platform ${{ matrix.platform }} -clean -trimpath -ldflags "-s -w"
 
+      # Sign the whole bundle. Without it the app only carries the Go linker's
+      # per-binary signature and macOS privacy (TCC) cannot remember folder
+      # permissions ("ArgusCode이(가) 데스크탑 폴더에 접근하려고 합니다" on every launch).
+      # - Secret MACOS_CERT_P12 (base64 .p12) + MACOS_CERT_PASSWORD set: signed
+      #   with that certificate (a self-signed one is enough), so permissions
+      #   survive app updates.
+      # - Otherwise ad-hoc: permissions are remembered until the next version.
+      - name: Sign (macOS)
+        if: runner.os == 'macOS'
+        env:
+          MACOS_CERT_P12: ${{ secrets.MACOS_CERT_P12 }}
+          MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+        run: |
+          APP=build/bin/ArgusCode.app
+          IDENTITY=-
+          if [ -n "$MACOS_CERT_P12" ]; then
+            KC="$RUNNER_TEMP/sign.keychain-db"
+            security create-keychain -p ci "$KC"
+            security set-keychain-settings -lut 21600 "$KC"
+            security unlock-keychain -p ci "$KC"
+            echo "$MACOS_CERT_P12" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+            security import "$RUNNER_TEMP/cert.p12" -k "$KC" -P "$MACOS_CERT_PASSWORD" -T /usr/bin/codesign
+            security set-key-partition-list -S apple-tool:,apple: -s -k ci "$KC" > /dev/null
+            security list-keychains -d user -s "$KC" $(security list-keychains -d user | tr -d '"')
+            IDENTITY=$(security find-identity -p codesigning "$KC" | awk -F'"' '/"/ {print $2; exit}')
+            echo "Signing with: $IDENTITY"
+          else
+            echo "MACOS_CERT_P12 not set: ad-hoc signing"
+          fi
+          codesign --force --deep --sign "$IDENTITY" "$APP"
+          codesign --verify --deep --verbose=2 "$APP"
+          codesign -dv "$APP" 2>&1 | grep -E 'Identifier|Authority|Signature' || true
+          codesign -d -r- "$APP" 2>&1 | tail -1
+
       - name: Package (macOS)
         if: runner.os == 'macOS'
         run: ditto -c -k --keepParent build/bin/ArgusCode.app ${{ matrix.artifact }}

@@ -5,6 +5,7 @@ import (
 	goruntime "runtime"
 
 	"github.com/sizzlei/argusCode/internal/keymap"
+	"github.com/sizzlei/argusCode/internal/workspace"
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/menu"
 	"github.com/wailsapp/wails/v2/pkg/menu/keys"
@@ -21,13 +22,22 @@ var assets embed.FS
 func main() {
 	app := NewApp()
 
+	// Window chrome follows the saved theme (macOS title bar changes on the next launch).
+	light := workspace.SavedTheme() == "light"
+	bg := &options.RGBA{R: 30, G: 31, B: 34, A: 255}
+	appearance, winTheme := mac.NSAppearanceNameDarkAqua, windows.Dark
+	if light {
+		bg = &options.RGBA{R: 243, G: 244, B: 246, A: 255}
+		appearance, winTheme = mac.NSAppearanceNameAqua, windows.Light
+	}
+
 	err := wails.Run(&options.App{
 		Title:            "ArgusCode",
 		Width:            1280,
 		Height:           820,
 		MinWidth:         640,
 		MinHeight:        400,
-		BackgroundColour: &options.RGBA{R: 30, G: 31, B: 34, A: 255},
+		BackgroundColour: bg,
 		AssetServer:      &assetserver.Options{Assets: assets},
 		Menu:             buildMenu(app),
 		OnStartup:        app.startup,
@@ -40,7 +50,7 @@ func main() {
 		},
 		Mac: &mac.Options{
 			TitleBar:             mac.TitleBarDefault(),
-			Appearance:           mac.NSAppearanceNameDarkAqua,
+			Appearance:           appearance,
 			WebviewIsTransparent: false,
 			About: &mac.AboutInfo{
 				Title:   "ArgusCode",
@@ -48,7 +58,7 @@ func main() {
 			},
 		},
 		Windows: &windows.Options{
-			Theme: windows.Dark,
+			Theme: winTheme,
 		},
 	})
 	if err != nil {

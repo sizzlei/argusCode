@@ -112,6 +112,22 @@ func (a *App) SetKeybindings(binds map[string]string) {
 	runtime.MenuSetApplicationMenu(a.ctx, buildMenu(a))
 }
 
+// SetTheme applies the app theme ("dark" / "light") to the native window:
+// background colour everywhere, title bar on Windows. The macOS title bar
+// follows at the next launch (Wails has no runtime appearance switch there).
+func (a *App) SetTheme(theme string) {
+	if a.ctx == nil {
+		return
+	}
+	if theme == "light" {
+		runtime.WindowSetBackgroundColour(a.ctx, 243, 244, 246, 255)
+		runtime.WindowSetLightTheme(a.ctx)
+	} else {
+		runtime.WindowSetBackgroundColour(a.ctx, 30, 31, 34, 255)
+		runtime.WindowSetDarkTheme(a.ctx)
+	}
+}
+
 func (a *App) keyFor(cmd string) string {
 	if c, ok := a.keys[cmd]; ok {
 		return c

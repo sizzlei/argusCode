@@ -88,6 +88,8 @@ export interface Backend {
   SetDirty(dirty: boolean): Promise<void>;
   /** Native menu shortcuts: command → combo ("" = none). */
   SetKeybindings(binds: Record<string, string>): Promise<void>;
+  /** Native window colours for the app theme. */
+  SetTheme(theme: string): Promise<void>;
   Quit(): Promise<void>;
   OpenFolderDialog(): Promise<string>;
   OpenFileDialog(): Promise<string>;
@@ -312,6 +314,7 @@ rules:
     },
     SetDirty: () => ok(undefined),
     SetKeybindings: () => ok(undefined),
+    SetTheme: () => ok(undefined),
     Quit: () => ok(undefined),
     OpenFolderDialog: () => ok('/demo'),
     OpenFileDialog: () => ok('/demo/sql/orders.sql'),

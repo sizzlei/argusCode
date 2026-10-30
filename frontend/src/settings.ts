@@ -114,6 +114,14 @@ export function openSettings(hooks: SettingsHooks) {
   // ---- sections ----------------------------------------------------------------
   const build: Record<Section, () => HTMLElement[]> = {
     editor: () => [
+      row(
+        '테마',
+        isMac ? '창 제목 표시줄은 다음 실행부터 바뀝니다' : null,
+        select('theme', [
+          ['dark', '다크'],
+          ['light', '라이트'],
+        ]),
+      ),
       row('글꼴', '비워 두면 기본 고정폭 글꼴. 쉼표로 여러 개 지정', text('fontFamily', 'D2Coding, JetBrains Mono')),
       row(
         '글꼴 크기',

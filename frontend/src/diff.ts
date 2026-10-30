@@ -47,7 +47,7 @@ export async function openDiff(kind: 'saved' | 'tabs') {
 
 async function show(wb: Workbench, titleA: string, a: string, titleB: string, b: string, doc: Doc) {
   const { MergeView, goToNextChunk, goToPreviousChunk } = await import('@codemirror/merge');
-  const ext = viewerExtensions(doc.lang, wb.settings.dialect, doc.large);
+  const ext = viewerExtensions(doc.lang, wb.settings.dialect, doc.large, wb.settings.theme);
   const host = h('div', { class: 'diff-host' });
   const count = h('span', { class: 'diff-count' });
   let mv: InstanceType<typeof MergeView>;

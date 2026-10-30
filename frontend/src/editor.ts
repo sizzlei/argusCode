@@ -19,6 +19,7 @@ import {
   indentOnInput,
   syntaxHighlighting,
   defaultHighlightStyle,
+  HighlightStyle,
   bracketMatching,
   foldKeymap,
   indentUnit,
@@ -27,6 +28,7 @@ import { highlightSelectionMatches, searchKeymap, search } from '@codemirror/sea
 import { autocompletion, completionKeymap, closeBrackets, closeBracketsKeymap } from '@codemirror/autocomplete';
 import { nextDiagnostic, previousDiagnostic } from '@codemirror/lint';
 import { oneDark } from '@codemirror/theme-one-dark';
+import { tags as t } from '@lezer/highlight';
 import { languageExtension, DialectId, LangId } from './languages';
 
 /** Per-state compartments so language / indentation can be swapped live. */
@@ -34,6 +36,9 @@ export const langComp = new Compartment();
 export const indentComp = new Compartment();
 export const wrapComp = new Compartment();
 export const wsComp = new Compartment();
+export const themeComp = new Compartment();
+
+export type ThemeId = 'dark' | 'light';
 
 export type Whitespace = 'none' | 'trailing' | 'all';
 
@@ -43,25 +48,65 @@ export function whitespaceExtension(w: Whitespace): Extension {
   return [];
 }
 
-const argusTheme = EditorView.theme(
-  {
-    '&': { height: '100%', backgroundColor: 'var(--bg-editor)', fontSize: 'var(--editor-font-size)' },
-    '.cm-scroller': { fontFamily: 'var(--editor-font, var(--font-mono))', lineHeight: '1.55' },
-    '.cm-trailingSpace': { backgroundColor: '#e5675f40' },
-    '.cm-highlightSpace': {
-      backgroundImage: 'radial-gradient(circle at 50% 55%, #5c637099 11%, transparent 5%)',
-    },
-    '.cm-highlightTab': { opacity: '0.45' },
-    '.cm-gutters': { backgroundColor: 'var(--bg-editor)', borderRight: 'none', color: '#5c6370' },
-    '.cm-activeLine': { backgroundColor: '#2a2d3366' },
-    '.cm-activeLineGutter': { backgroundColor: 'transparent', color: '#c9ccd3' },
-    '.cm-panels': { backgroundColor: 'var(--bg-side)', color: 'var(--fg)' },
-    '.cm-panels.cm-panels-top': { borderBottom: '1px solid var(--border)' },
-    '.cm-search input, .cm-search button': { fontSize: '12px' },
-    '.cm-tooltip': { border: '1px solid var(--border)' },
+const argusTheme = EditorView.theme({
+  '&': { height: '100%', backgroundColor: 'var(--bg-editor)', fontSize: 'var(--editor-font-size)' },
+  '.cm-scroller': { fontFamily: 'var(--editor-font, var(--font-mono))', lineHeight: '1.55' },
+  '.cm-trailingSpace': { backgroundColor: '#e5675f40' },
+  '.cm-highlightSpace': {
+    backgroundImage: 'radial-gradient(circle at 50% 55%, #8b8f9899 11%, transparent 5%)',
   },
-  { dark: true },
+  '.cm-highlightTab': { opacity: '0.45' },
+  '.cm-gutters': { backgroundColor: 'var(--bg-editor)', borderRight: 'none', color: 'var(--gutter-fg)' },
+  '.cm-activeLine': { backgroundColor: 'var(--active-line)' },
+  '.cm-activeLineGutter': { backgroundColor: 'transparent', color: 'var(--fg)' },
+  '.cm-panels': { backgroundColor: 'var(--bg-side)', color: 'var(--fg)' },
+  '.cm-panels.cm-panels-top': { borderBottom: '1px solid var(--border)' },
+  '.cm-search input, .cm-search button': { fontSize: '12px' },
+  '.cm-tooltip': { border: '1px solid var(--border)' },
+});
+
+// Light: One Light–like colours on the app's white editor background.
+const lightTheme = EditorView.theme(
+  {
+    '&': { color: '#383a42' },
+    '.cm-content': { caretColor: '#1f6fd1' },
+    '.cm-cursor, .cm-dropCursor': { borderLeftColor: '#1f6fd1' },
+    '&.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground, .cm-selectionBackground, .cm-content ::selection':
+      { backgroundColor: '#cfe0f7' },
+    '.cm-selectionMatch': { backgroundColor: '#e3ecd9' },
+    '.cm-searchMatch': { backgroundColor: '#fde9a8', outline: '1px solid #e6c65a' },
+    '.cm-searchMatch.cm-searchMatch-selected': { backgroundColor: '#f8d26a' },
+    '&.cm-focused .cm-matchingBracket': { backgroundColor: '#dfe6ee', outline: '1px solid #b9c4d2' },
+    '.cm-foldPlaceholder': { backgroundColor: '#eef0f3', border: '1px solid var(--border)', color: '#6b717b' },
+    '.cm-tooltip': { backgroundColor: '#ffffff', color: 'var(--fg)' },
+    '.cm-tooltip-autocomplete > ul > li[aria-selected]': { backgroundColor: '#dbe7f8', color: '#14171c' },
+  },
+  { dark: false },
 );
+
+const lightHighlight = HighlightStyle.define([
+  { tag: [t.keyword, t.operatorKeyword, t.modifier, t.controlKeyword], color: '#a626a4' },
+  { tag: [t.string, t.special(t.string), t.regexp], color: '#50a14f' },
+  { tag: [t.number, t.bool, t.null, t.atom], color: '#986801' },
+  { tag: [t.comment, t.lineComment, t.blockComment, t.docComment], color: '#a0a1a7', fontStyle: 'italic' },
+  { tag: [t.function(t.variableName), t.function(t.propertyName), t.labelName], color: '#4078f2' },
+  { tag: [t.typeName, t.className, t.namespace, t.standard(t.name)], color: '#c18401' },
+  { tag: [t.propertyName, t.attributeName], color: '#e45649' },
+  { tag: [t.definition(t.variableName), t.special(t.variableName)], color: '#0184bc' },
+  { tag: [t.operator, t.punctuation, t.separator], color: '#4b5059' },
+  { tag: [t.meta, t.processingInstruction], color: '#4078f2' },
+  { tag: t.heading, color: '#e45649', fontWeight: 'bold' },
+  { tag: [t.link, t.url], color: '#4078f2', textDecoration: 'underline' },
+  { tag: t.emphasis, fontStyle: 'italic' },
+  { tag: t.strong, fontWeight: 'bold' },
+  { tag: t.strikethrough, textDecoration: 'line-through' },
+  { tag: t.invalid, color: '#e45649' },
+]);
+
+/** Editor colours of the app theme (swapped live through themeComp). */
+export function themeExtension(theme: ThemeId): Extension {
+  return theme === 'light' ? [lightTheme, syntaxHighlighting(lightHighlight)] : oneDark;
+}
 
 /** Korean UI strings for CodeMirror's built-in panels (search, go to line, lint, folding). */
 const koreanPhrases = EditorState.phrases.of({
@@ -133,7 +178,6 @@ function base(onUpdate: Extension): Extension {
       { key: 'F8', run: nextDiagnostic, shift: previousDiagnostic },
       indentWithTab,
     ]),
-    oneDark,
     argusTheme,
     koreanPhrases,
     onUpdate,
@@ -147,7 +191,7 @@ export function indentExtension(size: number): Extension {
 export function createState(
   text: string,
   lang: LangId,
-  opts: { dialect: DialectId; indent: number; wrap: boolean; whitespace: Whitespace },
+  opts: { dialect: DialectId; indent: number; wrap: boolean; whitespace: Whitespace; theme: ThemeId },
   onUpdate: Extension,
   large = false,
 ): EditorState {
@@ -159,12 +203,13 @@ export function createState(
       indentComp.of(indentExtension(opts.indent)),
       wrapComp.of(opts.wrap ? EditorView.lineWrapping : []),
       wsComp.of(whitespaceExtension(opts.whitespace)),
+      themeComp.of(themeExtension(opts.theme)),
     ],
   });
 }
 
 /** Read-only editor setup used by the diff viewer. */
-export function viewerExtensions(lang: LangId, dialect: DialectId, large = false): Extension {
+export function viewerExtensions(lang: LangId, dialect: DialectId, large = false, theme: ThemeId = 'dark'): Extension {
   return [
     lineNumbers(),
     highlightSpecialChars(),
@@ -174,7 +219,7 @@ export function viewerExtensions(lang: LangId, dialect: DialectId, large = false
     search({ top: true }),
     keymap.of([...defaultKeymap, ...searchKeymap]),
     EditorState.readOnly.of(true),
-    oneDark,
+    themeExtension(theme),
     argusTheme,
     koreanPhrases,
     languageExtension(lang, dialect, large),

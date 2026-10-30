@@ -24,7 +24,7 @@ DBA를 위한 가벼운 데스크톱 편집기입니다. SQL · Markdown · JSON
 | 데드락 분석 | MySQL(InnoDB STATUS·에러 로그), PostgreSQL(서버 로그), Oracle(ORA-00060 트레이스)의 데드락을 트랜잭션·락·대기 관계로 보여주고 원인을 설명 — [사용법](deadlock.html) |
 | DDL 검토 | 팀 규칙 파일(YAML)로 CREATE / ALTER / INDEX를 검토해 밑줄과 오른쪽 패널로 표시 — [사용법](ddl-review.html) · [규칙 작성](ddl-rules.html) |
 | MongoDB | mongosh 스크립트 자동완성·정렬, 프로파일러·슬로우 로그의 명령을 mongosh 쿼리로 변환 |
-| 편집기 | 폴더 트리, 탭·분할, 빠른 열기, 폴더 검색/바꾸기, 개요, 비교, 자동 저장, 외부 변경 감지 |
+| 편집기 | 폴더 트리, 탭·분할, 빠른 열기, 폴더 검색/바꾸기, 개요, 비교, 자동 저장, 외부 변경 감지, 다크/라이트 테마, 단축키 변경 |
 
 ### 실행계획 보기
 
@@ -59,6 +59,10 @@ MySQL `EXPLAIN ANALYZE` 결과를 붙여 넣고 `⌥⌘E`를 누르면 오른쪽
 > ```bash
 > xattr -dr com.apple.quarantine /Applications/ArgusCode.app
 > ```
+>
+> 데스크탑·문서·다운로드 폴더에 처음 접근할 때 macOS가 허용 여부를 묻습니다. 한 번 허용하면 기억합니다
+> (v0.9.0부터 앱 번들에 서명해, 실행할 때마다 다시 묻던 문제를 고쳤습니다). 허용 상태는
+> 시스템 설정 → 개인정보 보호 및 보안 → **파일 및 폴더**에서 바꿀 수 있습니다.
 >
 > **Windows**: SmartScreen 경고가 나오면 **추가 정보 → 실행**을 선택하세요.
 

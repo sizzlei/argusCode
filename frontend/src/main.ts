@@ -345,6 +345,9 @@ function applySetting<K extends keyof Settings>(key: K, value: Settings[K]) {
       st.watch = value as boolean;
       updateWatchSoon();
       break;
+    case 'theme':
+      applyTheme(value as Settings['theme']);
+      break;
     case 'keybindings':
       st.keybindings = value as Settings['keybindings'];
       applyKeybindings();
@@ -688,6 +691,19 @@ function run(cmd: string) {
 }
 
 let keymap = keymapOf(DEFAULT_KEYS);
+
+/** Switches the app colours (CSS variables), the editors and the native window. */
+function applyTheme(theme: Settings['theme']) {
+  const t = theme === 'light' ? 'light' : 'dark';
+  document.documentElement.dataset.theme = t;
+  try {
+    localStorage.setItem('argus-theme', t);
+  } catch {
+    // storage unavailable — the session still has the theme
+  }
+  wb.setTheme(t);
+  api.SetTheme(t).catch(() => {});
+}
 
 /** Applies the shortcut settings to the keydown handler, hints and the native menu. */
 function applyKeybindings() {
@@ -1060,6 +1076,7 @@ async function boot() {
   setFontFamily(session.settings.fontFamily);
   setSqlKeywordCase(session.settings.sqlKeywordCase === 'upper');
   wb.setWhitespace(session.settings.whitespace);
+  applyTheme(session.settings.theme);
   applyKeybindings();
   loadDdlRules();
   explorer.supportedOnly = session.supportedOnly;

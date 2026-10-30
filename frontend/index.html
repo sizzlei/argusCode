@@ -4,6 +4,12 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>ArgusCode</title>
+    <script>
+      // Last theme, applied before the first paint (the session loads later).
+      try {
+        if (localStorage.getItem('argus-theme') === 'light') document.documentElement.dataset.theme = 'light';
+      } catch {}
+    </script>
   </head>
   <body>
     <div id="app"></div>
