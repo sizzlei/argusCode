@@ -7,6 +7,8 @@ export interface Entry {
   path: string;
   isDir: boolean;
   ext: string;
+  /** Bytes (files only). */
+  size?: number;
 }
 
 export interface FileContent {
@@ -161,6 +163,16 @@ export async function copyText(text: string): Promise<void> {
   else await navigator.clipboard.writeText(text);
 }
 
+/** Opens a URL in the system browser (Wails runtime; window.open in the browser mock). */
+export function openUrl(url: string) {
+  const rt = (window as any).runtime;
+  if (rt?.BrowserOpenURL) rt.BrowserOpenURL(url);
+  else window.open(url, '_blank', 'noopener');
+}
+
+/** Online documentation (GitHub Pages, built from /docs). */
+export const DOCS_URL = 'https://sizzlei.github.io/argusCode/';
+
 export async function readText(): Promise<string> {
   const rt = (window as any).runtime;
   if (rt?.ClipboardGetText) return (await rt.ClipboardGetText()) ?? '';
@@ -218,6 +230,8 @@ function createMock(): Backend {
     '/demo/mongo/backup.sh',
     `#!/bin/bash\nset -euo pipefail\n\n# 덤프 경로\nOUT=/backup/$(date +%F)\n\n# 컬렉션 하나 덤프\ndump_one() {\n  mongodump --uri "$MONGO_URI" --collection "$1" --out "$OUT"\n}\n\nfunction main {\n  for c in orders members; do dump_one "$c"; done\n  echo "done: $OUT"\n}\n\nmain "$@"\n`,
   );
+  add('/demo/docs/erd.png', '\u0089PNG');
+  add('/demo/docs/backup.zip', 'PK');
   add('/demo/config/db.yaml', `primary:\n  host: db.internal\n  port: 3306\nreplicas:\n  - host: r1\n  - host: r2\n`);
   const listDir = (dir: string): Entry[] => {
     const out: Entry[] = [];

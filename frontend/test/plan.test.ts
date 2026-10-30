@@ -3,7 +3,9 @@ import assert from 'node:assert/strict';
 import { parsePlan, type PlanNode } from '../src/plan.ts';
 
 const flat = (n: PlanNode, d = 0, out: string[] = []) => {
-  out.push(`${'  '.repeat(d)}${n.op}${n.table ? ' [' + n.table + ']' : ''}${n.index ? ' {' + n.index + '}' : ''}${n.warnings.length ? ' !' + n.warnings.map((w) => w.kind).join(',') : ''}`);
+  out.push(
+    `${'  '.repeat(d)}${n.op}${n.table ? ' [' + n.table + ']' : ''}${n.index ? ' {' + n.index + '}' : ''}${n.warnings.length ? ' !' + n.warnings.map((w) => w.kind).join(',') : ''}`,
+  );
   n.children.forEach((c) => flat(c, d + 1, out));
   return out;
 };
@@ -84,15 +86,25 @@ test('MySQL FORMAT=TREE / EXPLAIN ANALYZE pasted from the mysql client', () => {
 });
 
 test('MySQL FORMAT=JSON v2', () => {
-  const p = parsePlan(JSON.stringify({
-    query: 'select * from t where a > 1',
-    operation: 'Filter: (t.a > 1)',
-    access_type: 'filter',
-    estimated_rows: 33,
-    estimated_total_cost: 10.25,
-    condition: '(t.a > 1)',
-    inputs: [{ operation: 'Table scan on t', access_type: 'table', table_name: 't', estimated_rows: 100, estimated_total_cost: 10.25 }],
-  }))!;
+  const p = parsePlan(
+    JSON.stringify({
+      query: 'select * from t where a > 1',
+      operation: 'Filter: (t.a > 1)',
+      access_type: 'filter',
+      estimated_rows: 33,
+      estimated_total_cost: 10.25,
+      condition: '(t.a > 1)',
+      inputs: [
+        {
+          operation: 'Table scan on t',
+          access_type: 'table',
+          table_name: 't',
+          estimated_rows: 100,
+          estimated_total_cost: 10.25,
+        },
+      ],
+    }),
+  )!;
   assert.equal(p.format, 'mysql-json2');
   assert.deepEqual(flat(p.root), ['Filter: (t.a > 1)', '  Table scan on t [t] !fullscan,hot']);
 });
@@ -128,21 +140,45 @@ test('PostgreSQL text with ANALYZE', () => {
 });
 
 test('PostgreSQL JSON', () => {
-  const p = parsePlan(JSON.stringify([
-    {
-      Plan: {
-        'Node Type': 'Nested Loop', 'Join Type': 'Inner', 'Total Cost': 120.5, 'Plan Rows': 10,
-        Plans: [
-          { 'Node Type': 'Index Scan', 'Relation Name': 'orders', Alias: 'o', 'Index Name': 'orders_pkey', 'Total Cost': 8.3, 'Plan Rows': 1, 'Index Cond': '(id = 1)' },
-          { 'Node Type': 'Seq Scan', 'Relation Name': 'members', Alias: 'members', 'Total Cost': 100.0, 'Plan Rows': 10, Filter: '(grade = 1)' },
-        ],
+  const p = parsePlan(
+    JSON.stringify([
+      {
+        Plan: {
+          'Node Type': 'Nested Loop',
+          'Join Type': 'Inner',
+          'Total Cost': 120.5,
+          'Plan Rows': 10,
+          Plans: [
+            {
+              'Node Type': 'Index Scan',
+              'Relation Name': 'orders',
+              Alias: 'o',
+              'Index Name': 'orders_pkey',
+              'Total Cost': 8.3,
+              'Plan Rows': 1,
+              'Index Cond': '(id = 1)',
+            },
+            {
+              'Node Type': 'Seq Scan',
+              'Relation Name': 'members',
+              Alias: 'members',
+              'Total Cost': 100.0,
+              'Plan Rows': 10,
+              Filter: '(grade = 1)',
+            },
+          ],
+        },
+        'Planning Time': 0.2,
       },
-      'Planning Time': 0.2,
-    },
-  ]))!;
+    ]),
+  )!;
   assert.equal(p.format, 'pg-json');
   assert.equal(p.analyzed, false);
-  assert.deepEqual(flat(p.root), ['Nested Loop', '  Index Scan [orders o] {orders_pkey}', '  Seq Scan [members] !fullscan,hot']);
+  assert.deepEqual(flat(p.root), [
+    'Nested Loop',
+    '  Index Scan [orders o] {orders_pkey}',
+    '  Seq Scan [members] !fullscan,hot',
+  ]);
   assert.ok(p.root.details.includes('Join Type: Inner'));
 });
 

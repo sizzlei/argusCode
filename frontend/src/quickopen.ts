@@ -1,6 +1,7 @@
 // Cmd/Ctrl+P fuzzy file finder.
 
 import { api, basename, join } from './backend';
+import { unopenableReason } from './filetypes';
 import { langForName, LANGS } from './languages';
 import { h, toast } from './ui';
 
@@ -58,10 +59,16 @@ export async function quickOpen(root: string, open: (path: string) => void, rece
         const name = basename(rel);
         const dir = rel.slice(0, rel.length - name.length).replace(/\/$/, '');
         const lang = langForName(name);
+        const blocked = unopenableReason('', name);
         const row = h(
           'div',
-          { class: 'qo-row' + (i === sel ? ' sel' : '') },
-          h('span', { class: 'badge lang-' + lang }, LANGS[lang].badge),
+          {
+            class: 'qo-row' + (i === sel ? ' sel' : '') + (blocked ? ' unopenable' : ''),
+            title: blocked ? `편집기로 열 수 없음 — ${blocked}` : undefined,
+          },
+          blocked
+            ? h('span', { class: 'badge none' }, '⊘')
+            : h('span', { class: 'badge lang-' + lang }, LANGS[lang].badge),
           h('span', { class: 'qo-name' }, name),
           h('span', { class: 'qo-dir' }, dir),
         );

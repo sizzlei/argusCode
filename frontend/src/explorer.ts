@@ -3,6 +3,7 @@
 import { api, copyText, basename, dirname, Entry, isMac } from './backend';
 import { isSupported, langForName, LANGS } from './languages';
 import { ask, contextMenu, errText, h, prompt, toast } from './ui';
+import { onUnopenableChange, unopenableReason } from './filetypes';
 
 export interface ExplorerHooks {
   open(path: string, keepFocus?: boolean): void;
@@ -26,6 +27,7 @@ export class Explorer {
     private el: HTMLElement,
     private hooks: ExplorerHooks,
   ) {
+    onUnopenableChange(() => this.render());
     this.titleEl = h('div', { class: 'explorer-title' });
     this.treeEl = h('div', { class: 'tree', tabindex: '0' });
     this.el.append(
@@ -164,6 +166,7 @@ export class Explorer {
   private row(it: Entry, depth: number): HTMLElement {
     const open = this.expanded.has(it.path);
     const lang = it.isDir ? null : langForName(it.name);
+    const blocked = it.isDir ? null : unopenableReason(it.path, it.name, it.size);
     const el = h(
       'div',
       {
@@ -172,14 +175,17 @@ export class Explorer {
           (it.isDir ? ' dir' : ' file') +
           (it.path === this.activePath ? ' active' : '') +
           (it.path === this.selected ? ' selected' : '') +
-          (lang === 'text' ? ' unsupported' : ''),
+          (lang === 'text' ? ' unsupported' : '') +
+          (blocked ? ' unopenable' : ''),
         style: { paddingLeft: 8 + depth * 14 + 'px' },
-        title: it.path,
+        title: blocked ? `${it.path}\n편집기로 열 수 없음 — ${blocked}` : it.path,
         'data-path': it.path,
       },
       it.isDir
         ? h('span', { class: 'twisty' + (open ? ' open' : '') })
-        : h('span', { class: 'badge lang-' + lang }, LANGS[lang!].badge),
+        : blocked
+          ? h('span', { class: 'badge none' }, '⊘')
+          : h('span', { class: 'badge lang-' + lang }, LANGS[lang!].badge),
       h('span', { class: 'row-name' }, it.name),
     );
     el.addEventListener('click', () => this.activate(it, true));
@@ -206,6 +212,17 @@ export class Explorer {
       this.render();
       this.hooks.changed();
     } else {
+      const blocked = unopenableReason(it.path, it.name, it.size);
+      if (blocked) {
+        this.render();
+        toast(`'${it.name}'은(는) 편집기로 열 수 없습니다 — ${blocked}`, 'info', [
+          {
+            label: isMac ? 'Finder에서 보기' : '탐색기에서 보기',
+            run: () => api.RevealInFinder(it.path).catch(() => {}),
+          },
+        ]);
+        return;
+      }
       this.hooks.open(it.path, keepFocus);
     }
   }

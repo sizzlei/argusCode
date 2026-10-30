@@ -16,7 +16,9 @@ test('left style (default): keyword at margin, items and AND/OR indented', () =>
     '  and a < b',
   ].join('\n');
   assert.equal(
-    left("Select Max(Rev) From Revinfo Where Revtstmp < Unix_Timestamp(Date_Format(Now(), '%Y-%M-01')) * 1000 and a < b"),
+    left(
+      "Select Max(Rev) From Revinfo Where Revtstmp < Unix_Timestamp(Date_Format(Now(), '%Y-%M-01')) * 1000 and a < b",
+    ),
     want,
   );
   assert.equal(left(want), want);
@@ -125,7 +127,10 @@ test('CREATE TABLE aligns names and types and keeps table options', () => {
 test('other statements are left untouched; procedural code is refused', () => {
   assert.equal(f('ALTER TABLE  t ADD COLUMN c INT;'), 'ALTER TABLE  t ADD COLUMN c INT;');
   assert.throws(() => f('DELIMITER $$\nCREATE PROCEDURE p() BEGIN SELECT 1; END$$'), SqlFormatError);
-  assert.throws(() => f('CREATE FUNCTION f() RETURNS int AS $$ select 1; $$ LANGUAGE sql;', 'postgresql'), SqlFormatError);
+  assert.throws(
+    () => f('CREATE FUNCTION f() RETURNS int AS $$ select 1; $$ LANGUAGE sql;', 'postgresql'),
+    SqlFormatError,
+  );
 });
 
 test('dialect details: PostgreSQL casts, arrays, dollar quotes; Korean width', () => {
@@ -151,7 +156,7 @@ test('formatting is idempotent', () => {
 test('formatting never changes the token sequence', () => {
   const samples = [
     "SELECT DISTINCT a.x, (SELECT MAX(y) FROM b WHERE b.id = a.id) AS m, CASE WHEN a.z > 0 THEN 'p' ELSE 'n' END z FROM a LEFT OUTER JOIN c ON c.k = a.k AND c.d BETWEEN 1 AND 5 WHERE NOT EXISTS (SELECT 1 FROM d WHERE d.k = a.k) AND a.q LIKE '%x%' ORDER BY 1 DESC, 2 LIMIT 5 OFFSET 10 FOR UPDATE",
-    "INSERT INTO t SELECT * FROM u WHERE u.a IN (1, 2, 3); UPDATE t SET a = a + 1 WHERE b = -1; DELETE t FROM t JOIN u USING (id)",
+    'INSERT INTO t SELECT * FROM u WHERE u.a IN (1, 2, 3); UPDATE t SET a = a + 1 WHERE b = -1; DELETE t FROM t JOIN u USING (id)',
     "select /*+ INDEX(t idx) */ t.* , -1 + 2 * (3 - 4) / 5 % 6, 'it''s', \"dq\", `bt` from t # mysql comment\nwhere a <=> b",
     'SELECT a FROM t GROUP BY a WITH ROLLUP HAVING COUNT(*) > 1',
     "select row_number() over (partition by a order by b) rn, json_extract(c, '$.x') from t window w as (partition by a)",
@@ -178,7 +183,7 @@ test('formatting never changes the token sequence', () => {
 });
 
 test('toInList: quotes strings, keeps numbers, drops duplicates and blanks', () => {
-  assert.equal(toInList('a\nb\n\nb\nO\'Neil\n'), "('a', 'b', 'O''Neil')");
+  assert.equal(toInList("a\nb\n\nb\nO'Neil\n"), "('a', 'b', 'O''Neil')");
   assert.equal(toInList('1\n2\n3'), '(1, 2, 3)');
   assert.equal(toInList("'x', 'y'"), "('x', 'y')");
   const many = Array.from({ length: 40 }, (_, i) => 'id_' + i).join('\n');

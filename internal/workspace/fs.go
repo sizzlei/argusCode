@@ -33,6 +33,7 @@ type Entry struct {
 	Path  string `json:"path"`
 	IsDir bool   `json:"isDir"`
 	Ext   string `json:"ext"`
+	Size  int64  `json:"size"` // bytes (files only)
 }
 
 // FileContent is the result of reading a file.
@@ -79,6 +80,9 @@ func ListDir(dir string) ([]Entry, error) {
 		e := Entry{Name: name, Path: p, IsDir: isDir}
 		if !isDir {
 			e.Ext = strings.ToLower(strings.TrimPrefix(filepath.Ext(name), "."))
+			if st, err := os.Stat(p); err == nil {
+				e.Size = st.Size()
+			}
 		}
 		out = append(out, e)
 	}

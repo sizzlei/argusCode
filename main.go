@@ -104,6 +104,7 @@ func buildMenu(app *App) *menu.Menu {
 	view.AddText("Markdown 미리보기", keys.Combo("v", keys.CmdOrCtrlKey, keys.ShiftKey), emit("md.preview"))
 	view.AddText("실행계획 보기", keys.Combo("e", keys.CmdOrCtrlKey, keys.OptionOrAltKey), emit("plan.toggle"))
 	view.AddText("mongosh 쿼리로 변환", nil, emit("mongo.toShell"))
+	view.AddText("DDL 검토 패널", keys.Combo("m", keys.CmdOrCtrlKey, keys.ShiftKey), emit("problems.open"))
 	view.AddText("문서 정렬", keys.Combo("f", keys.ShiftKey, keys.OptionOrAltKey), emit("format"))
 	view.AddText("개요", keys.Combo("o", keys.CmdOrCtrlKey, keys.OptionOrAltKey), emit("view.outline"))
 	view.AddSeparator()

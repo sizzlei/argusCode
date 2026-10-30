@@ -22,9 +22,11 @@ import {
   LANGS,
   LangId,
   schemaNamespace,
+  setDdlLint,
   setSqlKeywordCase,
   setSqlSchema,
 } from './languages';
+import { forceLinting, forEachDiagnostic } from '@codemirror/lint';
 import { invalidateQuickOpen, quickOpen } from './quickopen';
 import { SearchState, SearchView } from './search';
 import { showEditorMenu } from './editormenu';
@@ -118,7 +120,7 @@ function welcome(): HTMLElement {
     'div',
     { class: 'welcome' },
     h('div', { class: 'welcome-logo' }, h('img', { class: 'logo', src: logoUrl, alt: '' }), 'ArgusCode'),
-    h('div', { class: 'welcome-sub' }, 'SQL · Markdown · JSON · YAML 을 위한 가벼운 편집기'),
+    h('div', { class: 'welcome-sub' }, 'SQL · Markdown · JSON · YAML · JS · Shell 을 위한 가벼운 편집기'),
     h(
       'div',
       { class: 'welcome-grid' },
@@ -204,6 +206,12 @@ setNavigator(async (file, line, name) => {
 const outlineView = new OutlineView(outlinePane, wb);
 initDiff(wb);
 wb.onCommand = (cmd) => run(cmd);
+wb.reviewInfo = () => ({ path: session.settings.ddlRulesPath, count: ddl.count, errors: ddl.errors });
+wb.copyText = (text) =>
+  copyText(text).then(
+    () => toast('DDL 검토 결과를 Markdown으로 복사했습니다.'),
+    () => toast('복사하지 못했습니다.', 'error'),
+  );
 
 // Created in boot() once the saved search state is known.
 let searchView: SearchView | null = null;
@@ -305,7 +313,12 @@ function applySetting<K extends keyof Settings>(key: K, value: Settings[K]) {
       break;
     case 'dialect':
       wb.setDialect(value as DialectId);
+      relintDdl();
       break;
+    case 'ddlRulesPath':
+      st.ddlRulesPath = value as string;
+      saveSessionSoon();
+      return; // the settings dialog reloads the rules itself
     case 'whitespace':
       wb.setWhitespace(value as Settings['whitespace']);
       break;
@@ -334,7 +347,101 @@ function applySetting<K extends keyof Settings>(key: K, value: Settings[K]) {
 }
 
 function showSettings() {
-  openSettings({ settings: session.settings, apply: applySetting, startupMs });
+  openSettings({
+    settings: session.settings,
+    apply: applySetting,
+    startupMs,
+    ddl: {
+      status: () => ({ path: session.settings.ddlRulesPath, count: ddl.count, errors: ddl.errors }),
+      browse: () => api.OpenFileDialog().catch(() => ''),
+      createTemplate: createDdlTemplate,
+      open: (p) => void openFile(p),
+      reload: () => loadDdlRules(true),
+    },
+  });
+}
+
+// ---- DDL review -------------------------------------------------------------------
+
+const ddl = { count: 0, errors: [] as string[], modTime: 0, path: '' };
+
+const ddlDialect = () => {
+  const d = session.settings.dialect;
+  return d === 'postgresql' ? 'postgresql' : d === 'plsql' ? 'oracle' : 'mysql';
+};
+
+/** (Re)loads the ruleset from settings and installs the linter on SQL editors. */
+async function loadDdlRules(force = false) {
+  const path = session.settings.ddlRulesPath.trim();
+  if (!path) {
+    if (ddl.path || force) {
+      Object.assign(ddl, { count: 0, errors: [], modTime: 0, path: '' });
+      setDdlLint([]);
+      wb.refreshSqlLanguage();
+      updateStatus();
+      wb.refreshReview();
+    }
+    return;
+  }
+  let text: string;
+  let modTime = 0;
+  try {
+    const fc = await api.ReadFile(path);
+    text = fc.content;
+    modTime = (await api.Stat(path)).modTime;
+  } catch (e) {
+    Object.assign(ddl, { count: 0, errors: ['규칙 파일을 읽지 못했습니다: ' + errText(e)], modTime: 0, path });
+    setDdlLint([]);
+    wb.refreshSqlLanguage();
+    updateStatus();
+    wb.refreshReview();
+    return;
+  }
+  if (!force && path === ddl.path && modTime === ddl.modTime) return;
+  const m = await import('./ddlreview');
+  const res = await m.loadRuleset(text);
+  const hadErrors = ddl.errors.join('\n');
+  Object.assign(ddl, { count: res.rules.length, errors: res.errors, modTime, path });
+  setDdlLint(res.rules.length ? m.ddlLinter(res.rules, ddlDialect, scheduleStatus) : []);
+  wb.refreshSqlLanguage();
+  updateStatus();
+  wb.refreshReview();
+  if (res.errors.length && res.errors.join('\n') !== hadErrors)
+    toast(`DDL 검토 규칙 오류 ${res.errors.length}개 — 설정 > DDL 검토에서 확인하세요`, 'error');
+}
+
+async function createDdlTemplate(): Promise<string | null> {
+  const dir = await api.SettingsDir().catch(() => '');
+  if (!dir) {
+    toast('설정 폴더를 찾지 못했습니다.', 'error');
+    return null;
+  }
+  const path = join(dir, 'ddl-rules.yaml');
+  const st = await api.Stat(path).catch(() => null);
+  if (!st?.exists) {
+    const { templateYaml } = await import('./ddlreview');
+    await api.WriteFile(path, templateYaml(), 'LF', false);
+    toast('규칙 템플릿을 만들었습니다: ' + path);
+  }
+  return path;
+}
+
+/** Re-runs the DDL review (e.g. after the SQL dialect changed). */
+function relintDdl() {
+  if (ddl.count) for (const g of wb.groups) forceLinting(g.view);
+}
+
+function openProblems() {
+  wb.toggleReview();
+}
+
+let statusTimer = 0;
+function scheduleStatus() {
+  clearTimeout(statusTimer);
+  statusTimer = window.setTimeout(() => {
+    updateStatus();
+    wb.refreshReview();
+  }, 50);
 }
 
 // ---- auto save ----------------------------------------------------------------
@@ -466,6 +573,7 @@ async function scanSchema(notify = false) {
   setSchemaIndex(schemaTables);
   wb.refreshSqlLanguage();
   updateStatus();
+  wb.refreshReview();
   if (notify) {
     const cols = schemaTables.reduce((n, t) => n + (t.columns?.length ?? 0), 0);
     toast(`DDL에서 테이블/뷰 ${schemaTables.length}개, 컬럼 ${cols}개를 읽었습니다.`);
@@ -495,6 +603,7 @@ async function confirmQuit() {
 
 const commands: Record<string, () => unknown> = {
   'app.settings': showSettings,
+  'problems.open': () => openProblems(),
   'file.new': () => wb.newUntitled(),
   'file.open': async () => {
     const p = await api.OpenFileDialog();
@@ -565,6 +674,7 @@ function run(cmd: string) {
 
 const keymap: [string, string][] = [
   ['mod+,', 'app.settings'],
+  ['mod+shift+m', 'problems.open'],
   ['mod+n', 'file.new'],
   ['mod+o', 'file.open'],
   ['mod+shift+o', 'folder.open'],
@@ -707,6 +817,7 @@ function updateStatus() {
                 label: (d === session.settings.dialect ? '✓ ' : '') + DIALECTS[d].label,
                 action: () => {
                   wb.setDialect(d);
+                  relintDdl();
                   saveSessionSoon();
                 },
               })),
@@ -727,6 +838,32 @@ function updateStatus() {
           'accent',
         ),
       );
+    }
+    if (doc.lang === 'sql' && (ddl.count || ddl.errors.length)) {
+      if (!ddl.count) right.append(statusItem('DDL 규칙 오류', ddl.errors.join('\n'), () => showSettings(), 'warn'));
+      else {
+        const n = { error: 0, warning: 0, info: 0, hint: 0 };
+        forEachDiagnostic(st, (d) => {
+          if (d.source === 'DDL 검토') n[d.severity]++;
+        });
+        const total = n.error + n.warning + n.info;
+        const label = total
+          ? 'DDL ' +
+            [n.error && `✕ ${n.error}`, n.warning && `⚠ ${n.warning}`, n.info && `ⓘ ${n.info}`]
+              .filter(Boolean)
+              .join(' ')
+          : 'DDL ✓';
+        right.append(
+          statusItem(
+            label,
+            total
+              ? `DDL 검토: 오류 ${n.error} · 경고 ${n.warning} · 정보 ${n.info} (클릭: 검토 패널)`
+              : `DDL 검토 규칙 ${ddl.count}개 — 위반 없음`,
+            () => openProblems(),
+            n.error ? 'error' : n.warning ? 'warn' : '',
+          ),
+        );
+      }
     }
     if ((doc.lang === 'json' || doc.lang === 'yaml') && !doc.large) {
       const p = pathAt(st, doc.lang, sel.head);
@@ -803,6 +940,7 @@ wb.on((what) => {
     return;
   }
   if (what === 'saved') {
+    if (session.settings.ddlRulesPath && wb.activeTab?.doc.path === session.settings.ddlRulesPath) loadDdlRules();
     explorer.refresh();
     invalidateQuickOpen();
     if (wb.activeTab?.doc.lang === 'sql') scanSchemaSoon();
@@ -884,6 +1022,7 @@ let focusTimer = 0;
 window.addEventListener('focus', () => {
   clearTimeout(focusTimer);
   focusTimer = window.setTimeout(() => {
+    loadDdlRules(); // picks up edits made to the rules file elsewhere
     wb.checkDisk();
     explorer.refresh();
     invalidateQuickOpen();
@@ -940,6 +1079,7 @@ async function boot() {
   setFontFamily(session.settings.fontFamily);
   setSqlKeywordCase(session.settings.sqlKeywordCase === 'upper');
   wb.setWhitespace(session.settings.whitespace);
+  loadDdlRules();
   explorer.supportedOnly = session.supportedOnly;
   searchView = new SearchView(searchPane, wb, () => session.root, session.search, saveSessionSoon);
   showSidebarView(['search', 'outline'].includes(session.sidebarView) ? session.sidebarView : 'explorer');

@@ -12,7 +12,6 @@
 // ($oid, $date, $numberLong, $binary …) becomes shell syntax. No dependencies;
 // the caller passes the long-line wrapper (jswrap.ts).
 
-
 type Obj = Record<string, any>;
 const isObj = (v: unknown): v is Obj => !!v && typeof v === 'object' && !Array.isArray(v);
 

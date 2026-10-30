@@ -23,6 +23,7 @@ import {
 } from './editor';
 import { DialectId, LangId, LANGS, langForName, languageExtension, extOf, onLanguageLoaded } from './languages';
 import { ask, contextMenu, errText, h, toast } from './ui';
+import { markUnopenable } from './filetypes';
 
 const remote = Annotation.define<boolean>();
 const MAX_GROUPS = 4;
@@ -46,6 +47,8 @@ export interface Settings {
   largeFileMB: number;
   /** Reload files changed on disk by other programs. */
   watch: boolean;
+  /** YAML ruleset for the DDL review ('' = off). */
+  ddlRulesPath: string;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -62,6 +65,7 @@ export const DEFAULT_SETTINGS: Settings = {
   autoSave: 'off',
   largeFileMB: 3,
   watch: true,
+  ddlRulesPath: '',
 };
 
 export interface GroupSession {
@@ -112,6 +116,8 @@ export class Group {
   previewOn = false;
   /** Execution-plan panel (takes precedence over the Markdown preview). */
   planOn = false;
+  /** DDL review panel (SQL documents). */
+  reviewOn = false;
   el: HTMLElement;
   tabbar: HTMLElement;
   body: HTMLElement;
@@ -143,6 +149,10 @@ export class Workbench {
   private lastDirty = false;
   /** Runs an app command (set by main.ts). */
   onCommand?: (cmd: string) => void;
+  /** Ruleset state for the DDL review panel (set by main.ts). */
+  reviewInfo?: () => { path: string; count: number; errors: string[] } | null;
+  /** Clipboard writer for the review panel (set by main.ts). */
+  copyText?: (text: string) => void;
 
   constructor(
     private container: HTMLElement,
@@ -422,7 +432,14 @@ export class Workbench {
     try {
       fc = await api.ReadFile(path);
     } catch (e) {
-      toast(`열 수 없습니다: ${basename(path)} — ${errText(e)}`, 'error');
+      const msg = errText(e);
+      markUnopenable(path, msg);
+      toast(
+        /binary/i.test(msg)
+          ? `'${basename(path)}'은(는) 텍스트 파일이 아니라 편집기로 열 수 없습니다.`
+          : `열 수 없습니다: ${basename(path)} — ${msg}`,
+        'error',
+      );
       return null;
     }
     // Another call may have opened it while we were reading.
@@ -848,8 +865,9 @@ export class Workbench {
   // ---- markdown preview -------------------------------------------------------
 
   /** What the side panel of a group shows, if anything. */
-  private previewMode(g: Group): 'plan' | 'md' | null {
+  private previewMode(g: Group): 'plan' | 'md' | 'review' | null {
     if (!g.active) return null;
+    if (g.reviewOn && g.active.doc.lang === 'sql') return 'review';
     if (g.planOn) return 'plan';
     if (g.previewOn && g.active.doc.lang === 'markdown') return 'md';
     return null;
@@ -859,6 +877,7 @@ export class Workbench {
   togglePlan(g: Group = this.activeGroup) {
     if (!g.active) return toast('실행계획 결과를 붙여 넣은 문서를 먼저 여세요.');
     g.planOn = !g.planOn;
+    if (g.planOn) g.reviewOn = false;
     this.showGroupContent(g);
     if (!g.planOn) g.preview.className = 'md-preview markdown-body';
   }
@@ -869,9 +888,32 @@ export class Workbench {
       return;
     }
     g.previewOn = !g.previewOn;
-    if (g.previewOn) g.planOn = false;
+    if (g.previewOn) {
+      g.planOn = false;
+      g.reviewOn = false;
+    }
     g.preview.className = 'md-preview markdown-body';
     this.showGroupContent(g);
+  }
+
+  /** Shows/hides the DDL review panel. */
+  toggleReview(g: Group = this.activeGroup, force?: boolean) {
+    if (!g.active || g.active.doc.lang !== 'sql') {
+      toast('SQL 문서에서 DDL 검토 패널을 열 수 있습니다.');
+      return;
+    }
+    g.reviewOn = force ?? !g.reviewOn;
+    if (g.reviewOn) {
+      g.planOn = false;
+      g.previewOn = false;
+    }
+    g.preview.className = g.reviewOn ? 'review-view' : 'md-preview markdown-body';
+    this.showGroupContent(g);
+  }
+
+  /** Re-renders open DDL review panels (after a lint run). */
+  refreshReview() {
+    for (const g of this.groups) if (this.previewMode(g) === 'review') this.schedulePreview(g, 0);
   }
 
   private schedulePreview(g: Group, delay: number) {
@@ -884,6 +926,15 @@ export class Workbench {
 
   private async renderPreview(g: Group) {
     const mode = this.previewMode(g);
+    if (mode === 'review') {
+      const { renderReview } = await import('./reviewpanel');
+      renderReview(g.preview, g.view, {
+        info: () => this.reviewInfo?.() ?? null,
+        openSettings: () => this.onCommand?.('app.settings'),
+        copy: (t) => this.copyText?.(t),
+      });
+      return;
+    }
     if (mode === 'plan') {
       const { renderPlanView } = await import('./planview');
       renderPlanView(g.preview, g.view.state.doc.toString(), {

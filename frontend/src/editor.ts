@@ -25,7 +25,7 @@ import {
 } from '@codemirror/language';
 import { highlightSelectionMatches, searchKeymap, search } from '@codemirror/search';
 import { autocompletion, completionKeymap, closeBrackets, closeBracketsKeymap } from '@codemirror/autocomplete';
-import { lintKeymap } from '@codemirror/lint';
+import { nextDiagnostic, previousDiagnostic } from '@codemirror/lint';
 import { oneDark } from '@codemirror/theme-one-dark';
 import { languageExtension, DialectId, LangId } from './languages';
 
@@ -128,7 +128,9 @@ function base(onUpdate: Extension): Extension {
       ...historyKeymap,
       ...foldKeymap,
       ...completionKeymap,
-      ...lintKeymap,
+      // F8 / Shift+F8: next / previous problem. (The bottom lint panel's Mod-Shift-m
+      // is replaced by the DDL review side panel.)
+      { key: 'F8', run: nextDiagnostic, shift: previousDiagnostic },
       indentWithTab,
     ]),
     oneDark,

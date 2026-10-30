@@ -4,7 +4,10 @@ import { jsonMinify, jsonSortKeys, jsonToYaml, yamlSortKeys, yamlToJson } from '
 
 test('JSON minify / sort keys', () => {
   assert.equal(jsonMinify('{ "b": 1, "a": [1, 2] }'), '{"b":1,"a":[1,2]}');
-  assert.equal(jsonSortKeys('{"b":1,"a":{"d":1,"c":2}}', 2), '{\n  "a": {\n    "c": 2,\n    "d": 1\n  },\n  "b": 1\n}\n');
+  assert.equal(
+    jsonSortKeys('{"b":1,"a":{"d":1,"c":2}}', 2),
+    '{\n  "a": {\n    "c": 2,\n    "d": 1\n  },\n  "b": 1\n}\n',
+  );
   assert.throws(() => jsonMinify('{a:1}'), /JSON 형식 오류/);
 });
 

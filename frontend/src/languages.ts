@@ -88,6 +88,13 @@ let sqlSchema: SQLNamespace = {};
 let upperKeywords = true;
 const sqlCache = new Map<DialectId, LanguageSupport>();
 
+// Rule-based DDL review linter (ddlreview.ts), set when a ruleset is loaded.
+let ddlLintExt: Extension = [];
+/** Installs (or removes, with []) the DDL review linter. Callers must reconfigure open SQL editors. */
+export function setDdlLint(ext: Extension) {
+  ddlLintExt = ext;
+}
+
 /** Replaces the completion schema. Callers must reconfigure open SQL editors. */
 export function setSqlSchema(ns: SQLNamespace) {
   sqlSchema = ns;
@@ -227,7 +234,7 @@ export function languageExtension(id: LangId, dialect: DialectId, large = false)
   if (large) return []; // large-file mode: plain text, no parsing
   switch (id) {
     case 'sql':
-      return [sqlSupport(dialect), sqlToolsExt];
+      return [sqlSupport(dialect), sqlToolsExt, ddlLintExt];
     case 'markdown':
       return mdSupport;
     case 'json':
