@@ -1,4 +1,4 @@
-import { Compartment, EditorState, Extension } from '@codemirror/state';
+import { Compartment, EditorState, Extension, Prec } from '@codemirror/state';
 import {
   EditorView,
   keymap,
@@ -71,8 +71,6 @@ const lightTheme = EditorView.theme(
     '&': { color: '#383a42' },
     '.cm-content': { caretColor: '#1f6fd1' },
     '.cm-cursor, .cm-dropCursor': { borderLeftColor: '#1f6fd1' },
-    '&.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground, .cm-selectionBackground, .cm-content ::selection':
-      { backgroundColor: '#cfe0f7' },
     '.cm-selectionMatch': { backgroundColor: '#e3ecd9' },
     '.cm-searchMatch': { backgroundColor: '#fde9a8', outline: '1px solid #e6c65a' },
     '.cm-searchMatch.cm-searchMatch-selected': { backgroundColor: '#f8d26a' },
@@ -103,9 +101,28 @@ const lightHighlight = HighlightStyle.define([
   { tag: t.invalid, color: '#e45649' },
 ]);
 
+/**
+ * Selection colours (clearly visible on both backgrounds). The active-line
+ * background (--active-line) is painted above the selection layer, so it is
+ * translucent — otherwise the dragged range disappears on the cursor's line.
+ */
+const selectionColors = (focused: string, blurred: string) =>
+  Prec.highest(
+    EditorView.theme({
+      '.cm-selectionBackground, .cm-content ::selection': { backgroundColor: blurred },
+      '&.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground, &.cm-focused .cm-content ::selection':
+        { backgroundColor: focused },
+    }),
+  );
+
+const darkSelection = selectionColors('#264f78', '#3a3f4b');
+const lightSelection = selectionColors('#b3d4fc', '#dde4ec');
+
 /** Editor colours of the app theme (swapped live through themeComp). */
 export function themeExtension(theme: ThemeId): Extension {
-  return theme === 'light' ? [lightTheme, syntaxHighlighting(lightHighlight)] : oneDark;
+  return theme === 'light'
+    ? [lightTheme, syntaxHighlighting(lightHighlight), lightSelection]
+    : [oneDark, darkSelection];
 }
 
 /** Korean UI strings for CodeMirror's built-in panels (search, go to line, lint, folding). */
@@ -164,7 +181,8 @@ function base(onUpdate: Extension): Extension {
     rectangularSelection(),
     crosshairCursor(),
     highlightActiveLine(),
-    highlightSelectionMatches(),
+    // Whitespace-only selections would light up every space in the document.
+    highlightSelectionMatches({ minSelectionLength: 2 }),
     search({ top: true }),
     keymap.of([
       ...closeBracketsKeymap,
