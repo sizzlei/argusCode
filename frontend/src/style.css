@@ -17,6 +17,8 @@
   --lang-markdown: #5fb3f0;
   --lang-json: #d7c26b;
   --lang-yaml: #e2779b;
+  --lang-javascript: #f1e05a;
+  --lang-shell: #89e051;
   --lang-text: #8b8f98;
   --font-ui: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif;
   --font-mono: 'JetBrains Mono', 'D2Coding', 'SF Mono', Menlo, Consolas, 'Malgun Gothic', monospace;
@@ -203,6 +205,12 @@ kbd {
 }
 .lang-yaml {
   color: var(--lang-yaml);
+}
+.lang-javascript {
+  color: var(--lang-javascript);
+}
+.lang-shell {
+  color: var(--lang-shell);
 }
 .lang-text {
   color: var(--lang-text);
@@ -1339,6 +1347,7 @@ button.sb-item:hover {
   background: rgba(232, 163, 61, 0.2);
   color: #f4be6e;
 }
+.plan-badge.w-examined,
 .plan-badge.w-misestimate {
   background: rgba(186, 120, 255, 0.2);
   color: #cfa6ff;
@@ -1358,14 +1367,11 @@ button.sb-item:hover {
 }
 .plan-row {
   display: grid;
-  grid-template-columns: minmax(var(--plan-op-min, 170px), 1fr) 54px 54px 70px;
+  grid-template-columns: var(--plan-cols, minmax(170px, 1fr) 54px 54px 70px);
   align-items: start;
   gap: 0 6px;
   padding: 4px 10px 4px 0;
   border-bottom: 1px solid rgba(255, 255, 255, 0.04);
-}
-.plan-table.analyzed .plan-row {
-  grid-template-columns: minmax(var(--plan-op-min, 170px), 1fr) 50px 50px 50px 54px 38px 70px;
 }
 .plan-row.jump {
   cursor: pointer;
@@ -1375,6 +1381,9 @@ button.sb-item:hover {
 }
 .plan-row.hot {
   background: rgba(255, 120, 60, 0.06);
+}
+.plan-colhead .pc-op {
+  padding-left: 22px;
 }
 .plan-colhead {
   position: sticky;
@@ -1471,6 +1480,22 @@ button.sb-item:hover {
 .plan-chip.i {
   background: rgba(110, 190, 120, 0.16);
   color: #9ee0a8;
+}
+.plan-detail.clamp {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  cursor: zoom-in;
+}
+.plan-detail.clamp.open {
+  display: block;
+  -webkit-line-clamp: unset;
+  cursor: zoom-out;
+}
+.plan-badge.w-conversion {
+  background: rgba(229, 103, 95, 0.22);
+  color: #ff9b94;
 }
 .plan-detail {
   font-family: var(--font-mono);

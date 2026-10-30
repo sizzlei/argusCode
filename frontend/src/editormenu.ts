@@ -133,8 +133,20 @@ export function showEditorMenu(view: EditorView, e: MouseEvent, hooks: EditorMen
     { separator: true, label: '' },
     { label: '오른쪽으로 분할', hint: k('⌘\\', 'Ctrl+\\'), action: () => hooks.run('pane.split') },
   );
-  if (lang === 'json' || lang === 'text' || lang === 'sql') {
+  if (lang === 'json' || lang === 'text' || lang === 'sql' || lang === 'javascript') {
     items.push({ label: '실행계획으로 보기', hint: k('⌥⌘E', 'Ctrl+Alt+E'), action: () => hooks.run('plan.toggle') });
+  }
+  // Shown for any document that contains a command document (log lines are
+  // often pasted into the default SQL tab or a .log file).
+  if (
+    /"(find|aggregate|count|distinct|insert|update|delete|findAndModify|findandmodify|command)"\s*:/.test(
+      state.sliceDoc(0, 20000),
+    )
+  ) {
+    items.push({
+      label: hasSel ? '선택 영역을 mongosh 쿼리로 변환 (새 탭)' : 'mongosh 쿼리로 변환 (새 탭)',
+      action: () => hooks.run('mongo.toShell'),
+    });
   }
   items.push(
     { label: '저장된 버전과 비교', action: () => hooks.run('diff.saved') },

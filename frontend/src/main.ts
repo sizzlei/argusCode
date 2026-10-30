@@ -414,6 +414,22 @@ async function dataConvert() {
   }
 }
 
+/** Log command documents (DocumentDB profiler, MongoDB slow log …) → mongosh, in a new tab. */
+async function mongoToShell() {
+  const t = wb.activeTab;
+  if (!t) return toast('변환할 로그나 명령을 붙여 넣은 문서를 먼저 여세요.');
+  const st = wb.stateOf(t);
+  const r = st.selection.main;
+  const text = r.empty ? st.doc.toString() : st.sliceDoc(r.from, r.to);
+  const [{ convertCommands }, { wrapLongLines }] = await Promise.all([import('./mongocmd'), import('./jswrap')]);
+  const unit = ' '.repeat(session.settings.indent);
+  const res = convertCommands(text, (c) => wrapLongLines(c, 100, unit));
+  if (!res.converted) return toast('변환할 MongoDB / DocumentDB 명령을 찾지 못했습니다.', 'error');
+  const base = t.doc.name.replace(/\.[^.]+$/, '');
+  wb.newUntitled(wb.activeGroup, 'javascript', base + '.mongosh.js', res.text);
+  toast(`${res.converted}개 명령을 변환했습니다` + (res.skipped ? ` (${res.skipped}줄 건너뜀)` : '') + '.');
+}
+
 async function dataTransform(kind: 'sort' | 'minify') {
   const t = wb.activeTab;
   if (!t || (t.doc.lang !== 'json' && t.doc.lang !== 'yaml'))
@@ -515,6 +531,7 @@ const commands: Record<string, () => unknown> = {
   'plan.toggle': () => wb.togglePlan(),
   format: () => formatActive(),
   'data.convert': () => dataConvert(),
+  'mongo.toShell': () => mongoToShell(),
   'data.sortKeys': () => dataTransform('sort'),
   'data.minify': () => dataTransform('minify'),
   'diff.saved': () => openDiff('saved'),

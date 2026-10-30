@@ -209,6 +209,15 @@ function createMock(): Backend {
     `CREATE TABLE orders (\n  id bigint NOT NULL COMMENT '주문 ID',\n  member_id bigint NOT NULL COMMENT '회원 ID',\n  amount decimal(12,2),\n  created_at datetime,\n  PRIMARY KEY (id)\n) COMMENT='주문';\nCREATE TABLE members (\n  id bigint NOT NULL,\n  grade varchar(10) COMMENT '등급'\n);\n`,
   );
   add('/demo/config/app.json', `{"name":"argus","port":8080,"features":["sql","md"]}\n`);
+  dirs.add('/demo/mongo');
+  add(
+    '/demo/mongo/orders.js',
+    `use shop\n\n// 최근 주문 인덱스\ndb.orders.createIndex({ memberId: 1, createdAt: -1 }, { name: 'member_created' });\n\n// VIP 매출 집계\ndb.orders.aggregate([{ $match: { status: 'PAID' } }, { $group: { _id: '$memberId', total: { $sum: '$amount' } } }, { $sort: { total: -1 } }]);\n\nfunction slowOps(sec) {\n  return db.currentOp({ secs_running: { $gt: sec } });\n}\n\nconst vip = db.getCollection('members').find({ grade: 'VIP' }).limit(10);\n`,
+  );
+  add(
+    '/demo/mongo/backup.sh',
+    `#!/bin/bash\nset -euo pipefail\n\n# 덤프 경로\nOUT=/backup/$(date +%F)\n\n# 컬렉션 하나 덤프\ndump_one() {\n  mongodump --uri "$MONGO_URI" --collection "$1" --out "$OUT"\n}\n\nfunction main {\n  for c in orders members; do dump_one "$c"; done\n  echo "done: $OUT"\n}\n\nmain "$@"\n`,
+  );
   add('/demo/config/db.yaml', `primary:\n  host: db.internal\n  port: 3306\nreplicas:\n  - host: r1\n  - host: r2\n`);
   const listDir = (dir: string): Entry[] => {
     const out: Entry[] = [];

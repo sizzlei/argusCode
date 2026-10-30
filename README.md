@@ -17,9 +17,12 @@ SQL · Markdown · JSON · YAML 편집에 맞춘 **가벼운 데스크톱 코드
 | SQL | 하이라이팅, 방언 선택(MySQL / PostgreSQL / Oracle / Standard, 상태바), **SQL 정렬** `⇧⌥F` — 기본은 왼쪽 정렬(SELECT 다음 줄에 컬럼, AND/OR 들여쓰기), 상태바 방언 메뉴에서 River(키워드 오른쪽 정렬, 비교 연산자 정렬)로 전환, 뒤쉼표, `AS` 별칭 세로 정렬, 서브쿼리·CASE 정렬, CREATE TABLE 컬럼/타입 정렬, 대소문자는 입력 그대로 유지, 선택 영역만 정렬 가능. **스키마 자동완성** — 폴더 안 `.sql`의 CREATE TABLE/VIEW, ALTER TABLE ADD, COMMENT ON을 읽어 테이블·컬럼(타입, 코멘트)을 제안, 별칭(`o.`)도 인식. 프로시저·트리거·DELIMITER가 있는 문서는 전체 정렬하지 않음(선택 정렬만) |
 | SQL 탐색 | 테이블·컬럼에 마우스를 올리면 타입·코멘트 표시, `⌘클릭`/`F12`로 DDL 정의 위치로 이동(별칭 `o.member_id`도 인식), 현재 문장 선택 `⇧⌘A`, 붙여 넣은 값 목록 → `IN (…)` 목록 변환(숫자는 그대로, 문자열은 따옴표, 중복 제거) |
 | 개요 | 사이드바 개요 `⌥⌘O` — SQL 문장 목록(바로 위 주석을 설명으로 표시), Markdown 제목, JSON/YAML 키 트리. 클릭하면 이동, 커서 위치 항목 강조, 필터 |
+| MongoDB (.js) | mongosh 스크립트 — 구문 강조·구문 오류 표시(`use`/`show` 명령 허용), 자동완성(`db.` 뒤 문서에 나온 컬렉션·db 메서드, 컬렉션·커서 메서드, `rs.`/`sh.` 관리 명령, `$` 조회·수정 연산자와 집계 스테이지·식 — `aggregate([…])` 안에서는 스테이지 우선), 호버 설명, 개요(`use`, `db.컬렉션.메서드`, 함수·변수), 정렬 `⇧⌥F`(js-beautify + 100자 넘는 줄은 괄호 단위로 나눠 파이프라인을 스테이지별 한 줄로) |
+| 로그 → mongosh | 우클릭/보기 메뉴 "mongosh 쿼리로 변환" — DocumentDB 프로파일러·감사 로그, MongoDB 슬로우 로그(`attr.command`), currentOp에 남는 명령 문서(`{"find":…,"filter":…,"$db":…,"lsid":…}`)를 `use db` + `db.컬렉션.find(…)` 형태로 새 탭에 변환. find·aggregate·count·distinct·insert·update·delete·findAndModify·createIndexes·explain 지원, 세션 필드(lsid·$clusterTime 등) 제거, Extended JSON(`$oid`·`$date`·`$numberLong`·`$binary` UUID …)을 셸 문법으로, 소요 시간·planSummary·검사 수는 주석으로. 한 줄에 하나씩 여러 건, 선택 영역만도 가능 |
+| Shell (.sh) | 구문 강조, 주석 토글, 개요(함수 목록 + 바로 위 주석) |
 | Markdown | 하이라이팅(코드 블록 안의 sql/json/yaml 포함), 옆 미리보기 `⇧⌘V` |
 | JSON / YAML | 하이라이팅, 실시간 문법 검사, 정렬, 커서 위치 경로(`$.replicas[0].host`) 상태바 표시·클릭 복사, JSON↔YAML 변환(새 탭), 키 이름순 정렬, JSON 한 줄 압축 |
-| 실행계획 | `⌥⌘E` — 붙여 넣은 실행계획을 오른쪽 패널에 트리로 표시. MySQL `FORMAT=JSON`(v1·v2)·`FORMAT=TREE`·`EXPLAIN ANALYZE`, PostgreSQL `FORMAT JSON`·텍스트(ANALYZE 포함) 자동 인식, mysql/psql 표 테두리 자동 제거. 노드별 비용·예상/실제 행·시간·반복, 자체 비용(시간) 막대, 풀스캔·filesort·임시 테이블·디스크 정렬·행 추정 오차 경고, 가장 무거운 노드 표시, 클릭하면 원문 줄로 이동 |
+| 실행계획 | `⌥⌘E` — 붙여 넣은 실행계획을 오른쪽 패널에 트리로 표시. MySQL `FORMAT=JSON`(v1·v2)·`FORMAT=TREE`·`EXPLAIN ANALYZE`, PostgreSQL `FORMAT JSON`·텍스트(ANALYZE 포함), Oracle `DBMS_XPLAN.DISPLAY`·`DISPLAY_CURSOR`(`ALLSTATS LAST` 실제 실행값, 조건절·Buffers·파티션·임시 공간·적응형 계획 표시), MongoDB·DocumentDB `explain()`(queryPlanner/executionStats, find·aggregate·샤드, mongosh 출력 그대로) 자동 인식, mysql/psql 표 테두리 자동 제거. 노드별 비용·예상/실제 행·시간·반복, 자체 비용(시간) 막대, 풀스캔·filesort·임시 테이블·디스크 정렬·행 추정 오차·과다 검사(검사 문서 대비 반환 문서) 경고, 가장 무거운 노드 표시, 클릭하면 원문 줄로 이동 |
 | 비교 | 저장된 버전과 비교, 다른 탭과 비교(분할 중이면 옆 그룹 문서와 바로 비교) — 나란히 보기, 변경 없는 구간 접기, `F7`/`⇧F7`로 변경 위치 이동 |
 | 경량화 | 대용량 모드(3MB 초과 파일은 하이라이트·검사 없이 열기), YAML·비교·Markdown 미리보기 라이브러리는 처음 쓸 때만 로드, 시작 화면에 시작 시간 표시 |
 | 파일 처리 | 원자적 저장(임시 파일 → rename), 줄바꿈(LF/CRLF)·UTF-8 BOM 유지 및 전환, 외부 변경 감지(파일 감시 + 창 포커스 시 확인, 저장 안 한 파일은 충돌 알림), 바이너리·20MB 초과 파일 차단 |
@@ -145,7 +148,10 @@ frontend/src/
   sqltools.ts             SQL 호버·정의로 이동·문장 선택·IN 목록
   structure.ts / outline.ts  개요(구문 트리 기반)와 JSON/YAML 경로
   datatools.ts            JSON↔YAML 변환, 키 정렬, 압축 (yaml 지연 로딩)
-  plan.ts / planview.ts   실행계획 파서(MySQL/PostgreSQL 5개 형식, test/ 에 단위 테스트)와 패널 (지연 로딩)
+  plan.ts / planview.ts   실행계획 파서(MySQL/PostgreSQL/Oracle/MongoDB, test/ 에 단위 테스트)와 패널 (지연 로딩)
+  jslang.ts / shlang.ts   JavaScript·셸 언어 (처음 열 때 지연 로딩)
+  mongotools.ts           mongosh 자동완성·호버
+  jswrap.ts               JS 정렬 후 긴 줄을 괄호 단위로 나누기 (test/ 에 단위 테스트)
   diff.ts                 비교 화면 (@codemirror/merge 지연 로딩)
   editormenu.ts           한글 우클릭 메뉴
   settings.ts             설정 화면 (즉시 적용, session.json에 저장)

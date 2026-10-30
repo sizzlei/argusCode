@@ -1,5 +1,5 @@
 import { Extension } from '@codemirror/state';
-import { LanguageSupport } from '@codemirror/language';
+import { LanguageDescription, LanguageSupport } from '@codemirror/language';
 import { sql, MySQL, PostgreSQL, PLSQL, StandardSQL, SQLDialect, SQLNamespace } from '@codemirror/lang-sql';
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
 import { json, jsonParseLinter } from '@codemirror/lang-json';
@@ -12,7 +12,7 @@ const sqlToolsExt = sqlTools();
 import type { Completion } from '@codemirror/autocomplete';
 import type { SchemaTable } from './backend';
 
-export type LangId = 'sql' | 'markdown' | 'json' | 'yaml' | 'text';
+export type LangId = 'sql' | 'markdown' | 'json' | 'yaml' | 'javascript' | 'shell' | 'text';
 
 export interface LangInfo {
   id: LangId;
@@ -25,6 +25,8 @@ export const LANGS: Record<LangId, LangInfo> = {
   markdown: { id: 'markdown', label: 'Markdown', badge: 'MD' },
   json: { id: 'json', label: 'JSON', badge: '{ }' },
   yaml: { id: 'yaml', label: 'YAML', badge: 'YML' },
+  javascript: { id: 'javascript', label: 'JavaScript', badge: 'JS' },
+  shell: { id: 'shell', label: 'Shell', badge: 'SH' },
   text: { id: 'text', label: 'Plain Text', badge: 'TXT' },
 };
 
@@ -46,6 +48,13 @@ const EXT: Record<string, LangId> = {
   geojson: 'json',
   yaml: 'yaml',
   yml: 'yaml',
+  js: 'javascript',
+  mjs: 'javascript',
+  cjs: 'javascript',
+  sh: 'shell',
+  bash: 'shell',
+  zsh: 'shell',
+  ksh: 'shell',
 };
 
 export function extOf(name: string): string {
@@ -161,6 +170,46 @@ const yamlLinter = linter(
 
 const jsonLinter = linter(jsonParseLinter(), { delay: 400 });
 
+// ---- Lazily loaded languages ----------------------------------------------------------
+// JavaScript (~150 KB with mongosh tools) and shell load the first time such a
+// file is opened; editors start as plain text and are reconfigured on load.
+
+const loaded: Partial<Record<LangId, Extension>> = {};
+const pending = new Set<LangId>();
+let onLoaded: ((id: LangId) => void) | null = null;
+
+/** Called when a lazily loaded language becomes available. */
+export function onLanguageLoaded(fn: (id: LangId) => void) {
+  onLoaded = fn;
+}
+
+function lazy(id: LangId): Extension {
+  const ext = loaded[id];
+  if (ext) return ext;
+  if (!pending.has(id)) {
+    pending.add(id);
+    const p =
+      id === 'javascript'
+        ? import('./jslang').then((m) => m.jsExtension())
+        : import('./shlang').then((m) => m.shExtension());
+    p.then((e) => {
+      loaded[id] = e;
+      onLoaded?.(id);
+    }).catch(() => pending.delete(id));
+  }
+  return [];
+}
+
+// Fenced code blocks in Markdown (```js / ```bash) load the same way.
+const jsCode = LanguageDescription.of({
+  name: 'javascript',
+  load: () => import('@codemirror/lang-javascript').then((m) => m.javascript()),
+});
+const shCode = LanguageDescription.of({
+  name: 'shell',
+  load: () => import('./shlang').then((m) => new LanguageSupport(m.shLanguage)),
+});
+
 const mdSupport = markdown({
   base: markdownLanguage,
   codeLanguages: (info) => {
@@ -168,6 +217,8 @@ const mdSupport = markdown({
     if (id === 'sql') return sqlSupport('mysql').language;
     if (id === 'json') return json().language;
     if (id === 'yaml') return yaml().language;
+    if (id === 'javascript' || /^(mongo|mongosh|javascript)$/.test(info.trim())) return jsCode;
+    if (id === 'shell' || /^(shell|console|shellsession)$/.test(info.trim())) return shCode;
     return null;
   },
 });
@@ -183,6 +234,9 @@ export function languageExtension(id: LangId, dialect: DialectId, large = false)
       return [json(), jsonLinter];
     case 'yaml':
       return [yaml(), yamlLinter];
+    case 'javascript':
+    case 'shell':
+      return lazy(id);
     default:
       return [];
   }
@@ -214,11 +268,29 @@ export async function formatText(
       });
       return out + (opts.fragment ? '' : '\n');
     }
+    case 'javascript': {
+      // js-beautify's JavaScript part only (~70 KB), loaded on first use; then
+      // over-long lines are broken at their brackets (pipelines: one stage per line).
+      const [{ default: beautify }, { wrapLongLines }] = await Promise.all([
+        import('js-beautify/js/src/javascript/index.js'),
+        import('./jswrap'),
+      ]);
+      const out = beautify(text, {
+        indent_size: opts.indent,
+        indent_char: ' ',
+        preserve_newlines: true,
+        max_preserve_newlines: 2,
+        brace_style: 'collapse,preserve-inline',
+        space_after_anon_function: false,
+        end_with_newline: false,
+      });
+      return wrapLongLines(out, 100, ' '.repeat(opts.indent)) + (opts.fragment ? '' : '\n');
+    }
     default:
       throw new Error('이 형식은 자동 정렬을 지원하지 않습니다.');
   }
 }
 
 export function canFormat(id: LangId): boolean {
-  return id === 'json' || id === 'yaml' || id === 'sql';
+  return id === 'json' || id === 'yaml' || id === 'sql' || id === 'javascript';
 }

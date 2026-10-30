@@ -3,12 +3,16 @@
 //   MySQL      EXPLAIN FORMAT=TREE / EXPLAIN ANALYZE (text tree)
 //   PostgreSQL EXPLAIN (FORMAT JSON) [ANALYZE]
 //   PostgreSQL EXPLAIN [ANALYZE] (text)
+//   Oracle     DBMS_XPLAN.DISPLAY / DISPLAY_CURSOR (incl. ALLSTATS LAST)
+//   MongoDB / DocumentDB explain() — queryPlanner / executionStats, find and
+//              aggregate, sharded; strict JSON or mongosh output (Long('1'), …)
 // into one tree model with costs, row estimates, actual statistics and
 // warnings. No dependencies — unit-tested with Node.
 
-export type PlanFormat = 'mysql-json' | 'mysql-json2' | 'mysql-tree' | 'pg-json' | 'pg-text';
+export type PlanFormat = 'mysql-json' | 'mysql-json2' | 'mysql-tree' | 'pg-json' | 'pg-text' | 'oracle' | 'mongo';
 
-export type WarnKind = 'fullscan' | 'indexscan' | 'filesort' | 'temporary' | 'disksort' | 'misestimate' | 'hot';
+export type WarnKind =
+  'fullscan' | 'indexscan' | 'filesort' | 'temporary' | 'disksort' | 'misestimate' | 'examined' | 'conversion' | 'hot';
 
 export interface PlanWarning {
   kind: WarnKind;
@@ -26,6 +30,8 @@ export interface PlanNode {
   actualRows?: number;
   actualTime?: number; // inclusive ms (time × loops)
   loops?: number;
+  /** Oracle logical reads (Buffers), inclusive. */
+  buffers?: number;
   /** Cost or time spent in this node itself (children excluded). */
   self: number;
   /** self / max(self) over the plan, 0..1 */
@@ -38,12 +44,16 @@ export interface PlanNode {
 
 export interface Plan {
   format: PlanFormat;
-  engine: 'MySQL' | 'PostgreSQL';
+  engine: 'MySQL' | 'PostgreSQL' | 'Oracle' | 'MongoDB';
+  /** Extra header figures (label, value), e.g. MongoDB examined/returned. */
+  stats?: [string, string][];
   root: PlanNode;
   totalCost?: number;
   planningTime?: number;
   executionTime?: number;
   analyzed: boolean; // has actual statistics
+  /** What `self` / `heat` measure. */
+  selfMetric: 'cost' | 'time' | 'buffers';
 }
 
 const FORMAT_LABEL: Record<PlanFormat, string> = {
@@ -52,6 +62,8 @@ const FORMAT_LABEL: Record<PlanFormat, string> = {
   'mysql-tree': 'MySQL · FORMAT=TREE',
   'pg-json': 'PostgreSQL · FORMAT JSON',
   'pg-text': 'PostgreSQL · TEXT',
+  oracle: 'Oracle · DBMS_XPLAN',
+  mongo: 'MongoDB · explain',
 };
 export const formatLabel = (f: PlanFormat) => FORMAT_LABEL[f];
 
@@ -73,16 +85,24 @@ const warn = (n: PlanNode, kind: WarnKind, label: string) => {
 
 /** Parses plan text in any supported format; returns null if not recognised. */
 export function parsePlan(input: string): Plan | null {
+  // Oracle's plan table uses the same "| … |" borders the mysql cleanup strips.
+  if (/\|\s*Id\s*\|\s*Operation\s*\|/i.test(input)) return parseOracle(input);
   const text = cleanClientOutput(input);
   const trimmed = text.trim();
   if (!trimmed) return null;
-  const first = trimmed[0];
+  // mongosh prompt before the result: "rs0 [primary] shop> {"
+  const body = trimmed.replace(/^[^\n{]*?>\s*(?=[{[])/, '');
+  const first = body[0];
   if (first === '{' || first === '[') {
     let data: unknown;
     try {
-      data = JSON.parse(trimmed);
+      data = JSON.parse(body);
     } catch {
-      return null;
+      try {
+        data = parseLoose(body); // mongosh / EJSON shell syntax
+      } catch {
+        return null;
+      }
     }
     return fromJson(data);
   }
@@ -135,6 +155,7 @@ function fromJson(data: unknown): Plan | null {
         num((o.query_block as any)?.cost_info?.query_cost),
       );
     if ('operation' in o || 'inputs' in o) return finish(mysqlJson2(o), 'mysql-json2');
+    if ('queryPlanner' in o || 'executionStats' in o || Array.isArray(o.stages) || 'shards' in o) return mongo(o);
   }
   return null;
 }
@@ -498,32 +519,47 @@ function finish(
 ): Plan {
   const root = 'root' in r ? r.root : r;
   const analyzed = hasActual(root);
-  computeSelf(root, analyzed, format);
+  // Oracle A-Time has 10 ms resolution; Buffers (logical reads) pinpoint the
+  // expensive step far better, so they drive the heat bar when present.
+  let metric: Plan['selfMetric'] = analyzed ? 'time' : 'cost';
+  if (format === 'oracle' && root.buffers != null) metric = 'buffers';
+  computeSelf(root, metric, format);
   let max = 0;
   forEach(root, (n) => (max = Math.max(max, n.self)));
   forEach(root, (n) => {
     n.heat = max > 0 ? n.self / max : 0;
     // Big gap between estimated and actual rows → stale statistics.
     // Only scans and joins: Limit/Sort legitimately stop early.
-    const relevant = !!n.table || /join|nested loop|hash|merge/i.test(n.op);
+    const relevant = !!n.table || !!n.index || /join|nested loop|hash|merge/i.test(n.op);
     if (relevant && n.rows != null && n.actualRows != null && n.loops != null) {
       const est = Math.max(1, n.rows);
       const act = Math.max(1, n.actualRows);
-      if (act / est >= 10 || est / act >= 10)
+      // ≥ 10× off, and by enough rows in total to matter (not "1 → 18").
+      const gap = Math.abs(n.rows - n.actualRows) * Math.max(1, n.loops);
+      if ((act / est >= 10 || est / act >= 10) && gap >= 100)
         warn(n, 'misestimate', `행 추정 ${fmt(n.rows)} → 실제 ${fmt(n.actualRows)}`);
     }
   });
   // The heaviest node gets a "hot" badge.
   const hot = findMax(root);
-  if (hot && max > 0) warn(hot, 'hot', analyzed ? '가장 오래 걸림' : '비용 최대');
+  if (hot && max > 0)
+    warn(hot, 'hot', metric === 'buffers' ? 'Buffers 최대' : metric === 'time' ? '가장 오래 걸림' : '비용 최대');
   return {
     format,
-    engine: format.startsWith('pg') ? 'PostgreSQL' : 'MySQL',
+    engine:
+      format === 'mongo'
+        ? 'MongoDB'
+        : format === 'oracle'
+          ? 'Oracle'
+          : format.startsWith('pg')
+            ? 'PostgreSQL'
+            : 'MySQL',
     root,
     totalCost: totalCost ?? root.cost,
     planningTime: 'root' in r ? r.planningTime : undefined,
     executionTime: 'root' in r ? r.executionTime : undefined,
     analyzed,
+    selfMetric: metric,
   };
 }
 
@@ -532,12 +568,524 @@ function hasActual(n: PlanNode): boolean {
 }
 
 /** Self cost/time = inclusive minus children (tree formats report inclusive values). */
-function computeSelf(n: PlanNode, analyzed: boolean, format: PlanFormat) {
-  for (const c of n.children) computeSelf(c, analyzed, format);
+function computeSelf(n: PlanNode, metric: Plan['selfMetric'], format: PlanFormat) {
+  for (const c of n.children) computeSelf(c, metric, format);
   if (format === 'mysql-json') return; // table nodes already carry read+eval cost
-  const incl = (x: PlanNode) => (analyzed ? x.actualTime : x.cost) ?? 0;
+  // Nodes without a figure of their own (Oracle FILTER, SORT AGGREGATE …)
+  // count as the sum of their children, so they don't make the parent look
+  // as if it did all the work.
+  const incl = (x: PlanNode): number => {
+    const v = metric === 'buffers' ? x.buffers : metric === 'time' ? x.actualTime : x.cost;
+    return v ?? x.children.reduce((s, c) => s + incl(c), 0);
+  };
   const childSum = n.children.reduce((s, c) => s + incl(c), 0);
   n.self = Math.max(0, incl(n) - childSum);
+}
+
+// ---- Oracle DBMS_XPLAN ---------------------------------------------------------------
+//
+// Plan hash value: 2231215893
+// ---------------------------------------------------------------------------
+// | Id  | Operation           | Name    | Rows  | Bytes | Cost (%CPU)| Time     |
+// ---------------------------------------------------------------------------
+// |   0 | SELECT STATEMENT    |         |    10 |   500 |    25   (4)| 00:00:01 |
+// |*  1 |  HASH JOIN          |         |    10 |   500 |    24   (0)| 00:00:01 |
+// …
+// Predicate Information (identified by operation id):
+//    1 - access("M"."ID"="O"."MEMBER_ID")
+//
+// DISPLAY_CURSOR(format => 'ALLSTATS LAST') adds Starts, E-Rows, A-Rows,
+// A-Time, Buffers, Reads, OMem/1Mem/Used-Mem, Used-Tmp.
+
+/** "1000", "12K", "3M", "1G" → number */
+const oraNum = (v: string | undefined): number | undefined => {
+  if (v == null) return undefined;
+  const m = /^\s*([\d.]+)\s*([KMGTP]?)\s*$/i.exec(v);
+  if (!m) return undefined;
+  const mult = { '': 1, K: 1e3, M: 1e6, G: 1e9, T: 1e12, P: 1e15 }[m[2].toUpperCase()] ?? 1;
+  return parseFloat(m[1]) * mult;
+};
+
+/** "00:00:01.23" / "00:00:01" → ms */
+const oraTime = (v: string | undefined): number | undefined => {
+  const m = v && /^\s*(?:(\d+):)?(\d+):(\d+(?:\.\d+)?)\s*$/.exec(v);
+  if (!m) return undefined;
+  return ((+(m[1] ?? 0) * 60 + +m[2]) * 60 + +m[3]) * 1000;
+};
+
+const ORA_FULL = /^TABLE ACCESS (STORAGE )?FULL|^MAT_VIEW ACCESS (STORAGE )?FULL/;
+const ORA_INDEX_FULL = /^INDEX (FAST )?FULL SCAN/;
+
+function parseOracle(input: string): Plan | null {
+  const lines = input.replace(/\r\n?/g, '\n').split('\n');
+  const headAt = lines.findIndex((l) => /\|\s*Id\s*\|\s*Operation\s*\|/i.test(l));
+  if (headAt < 0) return null;
+  const cells = (l: string) =>
+    l
+      .replace(/^\s*\|/, '')
+      .replace(/\|\s*$/, '')
+      .split('|');
+  const head = cells(lines[headAt]).map((c) => c.trim().toLowerCase());
+  const col = (...names: string[]) => head.findIndex((h) => names.includes(h));
+  const ci = {
+    id: col('id'),
+    op: col('operation'),
+    name: col('name'),
+    rows: col('rows', 'e-rows'),
+    bytes: col('bytes', 'e-bytes'),
+    cost: col('cost (%cpu)', 'cost', 'e-cost'),
+    time: col('time', 'e-time'),
+    starts: col('starts'),
+    arows: col('a-rows'),
+    atime: col('a-time'),
+    buffers: col('buffers'),
+    reads: col('reads'),
+    writes: col('writes'),
+    usedMem: col('used-mem'),
+    usedTmp: col('used-tmp'),
+    tempSpc: col('tempspc'),
+    pstart: col('pstart'),
+    pstop: col('pstop'),
+  };
+
+  interface Row {
+    node: PlanNode;
+    id: number;
+    depth: number;
+  }
+  const rows: Row[] = [];
+  for (let i = headAt + 1; i < lines.length; i++) {
+    const l = lines[i];
+    if (/^\s*-{5,}\s*$/.test(l)) {
+      if (rows.length) break; // closing border
+      continue;
+    }
+    if (!/^\s*\|/.test(l)) {
+      if (rows.length) break;
+      continue;
+    }
+    const c = cells(l);
+    const idm = /^\s*([*-]?)\s*(\d+)\s*$/.exec(c[ci.id] ?? '');
+    if (!idm) continue;
+    const opCell = c[ci.op] ?? '';
+    const opText = opCell.trim();
+    // Depth = indentation inside the Operation column (one space per level).
+    const depth = Math.max(0, opCell.length - opCell.trimStart().length - 1);
+    const n = node(opText.replace(/\s+/g, ' '), { line: i });
+    const name = ci.name >= 0 ? c[ci.name]?.trim() : '';
+    if (name) {
+      if (/INDEX|DOMAIN/.test(n.op) && !/^TABLE ACCESS/.test(n.op)) n.index = name;
+      else n.table = name;
+    }
+    n.cost = oraNum((c[ci.cost] ?? '').replace(/\(.*\)/, ''));
+    n.rows = oraNum(c[ci.rows]);
+    const starts = oraNum(c[ci.starts]);
+    const arows = oraNum(c[ci.arows]);
+    if (starts != null) n.loops = starts;
+    // A-Rows is the total over all starts; keep it per start like E-Rows.
+    if (arows != null) n.actualRows = starts ? arows / starts : arows;
+    n.actualTime = oraTime(c[ci.atime]);
+    if (ci.buffers >= 0) n.buffers = oraNum(c[ci.buffers]);
+    if (idm[1] === '-') n.details.push('적응형 계획에서 사용 안 된 단계');
+    const io: string[] = [];
+    const add = (label: string, k: number) => {
+      const v = c[k]?.trim();
+      if (k >= 0 && v) io.push(`${label} ${v}`);
+    };
+    add('Reads', ci.reads);
+    add('Writes', ci.writes);
+    add('메모리', ci.usedMem);
+    if (io.length) n.details.push(io.join(' · '));
+    if (ci.pstart >= 0 && c[ci.pstart]?.trim())
+      n.details.push(`파티션 ${c[ci.pstart].trim()} ~ ${c[ci.pstop]?.trim() ?? ''}`);
+
+    if (ORA_FULL.test(n.op)) warn(n, 'fullscan', '테이블 풀스캔');
+    if (ORA_INDEX_FULL.test(n.op)) warn(n, 'indexscan', '인덱스 풀스캔');
+    if (/^SORT (ORDER BY|GROUP BY|UNIQUE|JOIN)|^WINDOW SORT/.test(n.op)) warn(n, 'filesort', '정렬');
+    if (/CARTESIAN/.test(n.op)) warn(n, 'fullscan', '카티션 조인');
+    if (/^TEMP TABLE TRANSFORMATION|^LOAD AS SELECT.*TEMP/.test(n.op)) warn(n, 'temporary', '임시 테이블');
+    const tmp = (ci.usedTmp >= 0 ? c[ci.usedTmp] : ci.tempSpc >= 0 ? c[ci.tempSpc] : '')?.trim();
+    if (tmp && oraNum(tmp)) warn(n, 'disksort', `임시 공간 ${tmp}`);
+    rows.push({ node: n, id: +idm[2], depth });
+  }
+  if (!rows.length) return null;
+
+  // Predicates and notes after the table.
+  const byId = new Map(rows.map((r) => [r.id, r.node]));
+  let section = '';
+  let cur: PlanNode | undefined;
+  const notes: string[] = [];
+  for (let i = headAt + 1; i < lines.length; i++) {
+    const l = lines[i];
+    if (/^\s*Predicate Information/i.test(l)) {
+      section = 'pred';
+      continue;
+    }
+    if (/^\s*Note\s*$/i.test(l)) {
+      section = 'note';
+      continue;
+    }
+    if (/^\s*(Column Projection|Query Block Name|Outline Data|Hint Report|Remote SQL)/i.test(l)) {
+      section = '';
+      continue;
+    }
+    if (/^\s*-{3,}\s*$/.test(l) || !l.trim()) continue;
+    if (section === 'pred') {
+      // "  11 - access(…)", then "       filter(…" for the same id, and long
+      // expressions wrapped over several lines (joined back into one).
+      const m = /^\s*(\d+)\s+-\s+(.*)$/.exec(l);
+      const t = (m ? m[2] : l).trim();
+      if (m) cur = byId.get(+m[1]);
+      if (!cur) continue;
+      if (m || /^(access|filter|storage)\(/i.test(t)) {
+        cur.details.push(t);
+        if (/INTERNAL_FUNCTION\(/i.test(t)) warn(cur, 'conversion', '암시적 형변환');
+      } else {
+        cur.details[cur.details.length - 1] += ' ' + t;
+        if (/INTERNAL_FUNCTION\(/i.test(t)) warn(cur, 'conversion', '암시적 형변환');
+      }
+    } else if (section === 'note') {
+      const t = l.replace(/^\s*-\s*/, '').trim();
+      if (t) notes.push(t);
+    }
+  }
+
+  // Build the tree from the indentation depth.
+  const stack: Row[] = [];
+  let root: PlanNode | null = null;
+  for (const r of rows) {
+    while (stack.length && stack[stack.length - 1].depth >= r.depth) stack.pop();
+    if (stack.length) stack[stack.length - 1].node.children.push(r.node);
+    else if (!root) root = r.node;
+    else {
+      // more than one top-level row: wrap them
+      const wrap: PlanNode = node('계획');
+      wrap.children.push(root, r.node);
+      root = wrap;
+    }
+    stack.push(r);
+  }
+  if (!root) return null;
+  for (const n of notes) root.details.push('참고: ' + n);
+
+  const plan = finish({ root }, 'oracle');
+  const stats: [string, string][] = [];
+  const hash = /Plan hash value:\s*(\d+)/i.exec(input);
+  const sqlId = /SQL_ID\s+([0-9a-z]{13})(?:,\s*child number\s*(\d+))?/i.exec(input);
+  if (sqlId) stats.push(['SQL_ID', sqlId[1] + (sqlId[2] != null ? ` #${sqlId[2]}` : '')]);
+  if (hash) stats.push(['Plan hash', hash[1]]);
+  const estTime = ci.time >= 0 ? cells(lines[rows[0].node.line!])[ci.time]?.trim() : '';
+  if (!plan.analyzed && estTime) stats.push(['예상 시간', estTime]);
+  const top = rows[0].node;
+  if (plan.analyzed && top.actualTime != null) plan.executionTime = top.actualTime;
+  if (top.buffers != null) stats.push(['Buffers', fmt(top.buffers)]);
+  plan.stats = stats;
+  return plan;
+}
+
+// ---- MongoDB / DocumentDB explain ----------------------------------------------------
+
+type Obj = Record<string, any>;
+const isObj = (v: unknown): v is Obj => !!v && typeof v === 'object' && !Array.isArray(v);
+
+const MONGO_STAGE: Record<string, string> = {
+  COLLSCAN: '컬렉션 전체 스캔',
+  IXSCAN: '인덱스 스캔',
+  FETCH: '문서 읽기',
+  SORT: '메모리 정렬',
+  SORT_KEY_GENERATOR: '정렬 키 생성',
+  PROJECTION_SIMPLE: '필드 선택',
+  PROJECTION_DEFAULT: '필드 선택',
+  PROJECTION_COVERED: '커버링 인덱스',
+  LIMIT: '개수 제한',
+  SKIP: '건너뛰기',
+  COUNT_SCAN: '인덱스로 개수 세기',
+  IDHACK: '_id 조회',
+  EXPRESS_IXSCAN: '단건 인덱스 조회',
+  OR: 'OR 결합',
+  SORT_MERGE: '정렬 병합',
+  SHARD_MERGE: '샤드 결과 병합',
+  SHARDING_FILTER: '샤드 소유 필터',
+  EOF: '결과 없음',
+  GROUP: '그룹',
+  // DocumentDB
+  SUBSCAN: '하위 스캔',
+  HASH_AGGREGATE: '해시 집계',
+};
+
+function mongo(o: Obj): Plan {
+  const stats: [string, string][] = [];
+  const es = isObj(o.executionStats) ? o.executionStats : undefined;
+  const qp = isObj(o.queryPlanner) ? o.queryPlanner : undefined;
+  let root: PlanNode;
+  if (Array.isArray(o.stages)) root = mongoPipeline(o.stages);
+  else if (isObj(o.shards) && !qp) root = mongoShardsMap(o.shards);
+  else root = mongoQuery(qp, es);
+  const top = es ?? (Array.isArray(o.stages) ? o.stages[0]?.$cursor?.executionStats : undefined);
+  if (isObj(top)) {
+    const ret = num(top.nReturned);
+    const docs = num(top.totalDocsExamined);
+    const keys = num(top.totalKeysExamined);
+    if (ret != null) stats.push(['반환', fmt(ret)]);
+    if (keys != null) stats.push(['검사 키', fmt(keys)]);
+    if (docs != null) stats.push(['검사 문서', fmt(docs)]);
+  }
+  const ns = qp?.namespace ?? (Array.isArray(o.stages) ? o.stages[0]?.$cursor?.queryPlanner?.namespace : undefined);
+  if (ns) stats.unshift(['컬렉션', String(ns)]);
+  const plan = finish({ root, executionTime: num(top?.executionTimeMillis) }, 'mongo');
+  plan.stats = stats;
+  return plan;
+}
+
+/** A find/count/… explain: executionStages when available, else the winning plan. */
+function mongoQuery(qp: Obj | undefined, es: Obj | undefined): PlanNode {
+  const ns = qp?.namespace ? String(qp.namespace) : undefined;
+  const stages = es?.executionStages;
+  // Slot-based engine (MongoDB 7+, explainVersion 2) reports internal stages
+  // in lower case (scan, nlj, ixseek …). Show the readable queryPlan instead
+  // and attach the overall execution totals to its root.
+  const sbe = isObj(stages) && /^[a-z]/.test(String(stages.stage ?? ''));
+  if (isObj(stages) && !sbe) return mongoStage(stages, ns);
+  let wp = qp?.winningPlan;
+  if (isObj(wp?.queryPlan)) wp = wp.queryPlan;
+  if (!isObj(wp)) return node('실행계획 없음');
+  const root = mongoStage(wp, ns);
+  if (es) {
+    root.actualRows = num(es.nReturned);
+    root.actualTime = num(es.executionTimeMillis);
+    const examined = Math.max(num(es.totalDocsExamined) ?? 0, num(es.totalKeysExamined) ?? 0);
+    root.details.push('SBE 실행 — 반환·시간·검사 수는 쿼리 전체 합계');
+    if (root.actualRows != null && examined >= 1000 && examined / Math.max(1, root.actualRows) >= 10) {
+      // Blame the scan that did the reading.
+      let leaf = root;
+      while (leaf.children.length) leaf = leaf.children[0];
+      warn(leaf, 'examined', `${fmt(examined)}건 검사 → ${fmt(root.actualRows)}건 반환`);
+    }
+  }
+  return root;
+}
+
+function mongoShardsMap(shards: Obj): PlanNode {
+  const root = node('샤드');
+  for (const [name, v] of Object.entries(shards)) {
+    if (!isObj(v)) continue;
+    const c = mongoQuery(v.queryPlanner, v.executionStats);
+    c.details.unshift('샤드 ' + name);
+    root.children.push(c);
+  }
+  return root;
+}
+
+function mongoStage(st: Obj, ns?: string): PlanNode {
+  const stage = String(st.stage ?? '?');
+  const n = node(stage);
+  const ko = MONGO_STAGE[stage];
+  if (ko) n.details.push(ko);
+  if ((stage === 'COLLSCAN' || stage === 'IXSCAN' || stage === 'COUNT_SCAN' || stage === 'IDHACK') && ns)
+    n.table = ns.replace(/^[^.]*\./, '');
+  if (st.indexName) n.index = String(st.indexName);
+  if (st.shardName) n.details.push('샤드 ' + st.shardName);
+  if (isObj(st.keyPattern))
+    n.details.push('키 ' + compact(st.keyPattern) + (st.direction === 'backward' ? ' (역순)' : ''));
+  if (isObj(st.filter) && Object.keys(st.filter).length) n.details.push('필터 ' + compact(st.filter));
+  if (isObj(st.indexBounds)) n.details.push('범위 ' + compact(st.indexBounds));
+  if (isObj(st.sortPattern)) n.details.push('정렬 ' + compact(st.sortPattern));
+  if (st.limitAmount != null) n.details.push('limit ' + st.limitAmount);
+  if (st.skipAmount != null) n.details.push('skip ' + st.skipAmount);
+  if (isObj(st.transformBy)) n.details.push('투영 ' + compact(st.transformBy));
+
+  n.actualRows = num(st.nReturned);
+  n.actualTime = num(st.executionTimeMillisEstimate ?? st.executionTimeMillis);
+  const docs = num(st.docsExamined ?? st.totalDocsExamined);
+  const keys = num(st.keysExamined ?? st.totalKeysExamined);
+  const seen: string[] = [];
+  if (keys) seen.push('키 ' + fmt(keys));
+  if (docs) seen.push('문서 ' + fmt(docs));
+  if (seen.length) n.details.push('검사 ' + seen.join(' · '));
+
+  if (stage === 'COLLSCAN') warn(n, 'fullscan', '컬렉션 풀스캔');
+  if (stage === 'SORT') warn(n, 'filesort', '메모리 정렬');
+  if (st.usedDisk === true || st.spills > 0) warn(n, 'disksort', '디스크 사용');
+  const examined = Math.max(docs ?? 0, keys ?? 0);
+  if (n.actualRows != null && examined >= 1000 && examined / Math.max(1, n.actualRows) >= 10)
+    warn(n, 'examined', `${fmt(examined)}건 검사 → ${fmt(n.actualRows)}건 반환`);
+
+  const kids: Obj[] = [];
+  if (isObj(st.inputStage)) kids.push(st.inputStage);
+  if (Array.isArray(st.inputStages)) kids.push(...st.inputStages.filter(isObj));
+  for (const k of kids) n.children.push(mongoStage(k, ns));
+  if (Array.isArray(st.shards))
+    for (const sh of st.shards.filter(isObj)) {
+      const inner = sh.executionStages ?? sh.winningPlan?.queryPlan ?? sh.winningPlan;
+      const c = isObj(inner) ? mongoStage(inner, ns) : node('샤드');
+      if (sh.shardName) c.details.unshift('샤드 ' + sh.shardName);
+      n.children.push(c);
+    }
+  return n;
+}
+
+/** aggregate() explain: stages[0] is $cursor (the query), later stages run on top of it. */
+function mongoPipeline(stages: unknown[]): PlanNode {
+  let below: PlanNode | null = null;
+  for (const s of stages) {
+    if (!isObj(s)) continue;
+    let n: PlanNode;
+    if (isObj(s.$cursor)) n = mongoQuery(s.$cursor.queryPlanner, s.$cursor.executionStats);
+    else {
+      const name = Object.keys(s).find((k) => k.startsWith('$')) ?? '?';
+      n = node(name);
+      const spec = s[name];
+      if (spec != null) n.details.push(compact(spec));
+      n.actualRows = num(s.nReturned);
+      n.actualTime = num(s.executionTimeMillisEstimate);
+      if (name === '$sort') warn(n, 'filesort', '메모리 정렬');
+      if (s.usedDisk === true) warn(n, 'disksort', '디스크 사용');
+      if (name === '$lookup' && num(s.collectionScans) && num(s.collectionScans)! > 0)
+        warn(n, 'fullscan', `조인 대상 풀스캔 ${fmt(num(s.collectionScans))}회`);
+    }
+    if (below) n.children.push(below);
+    below = n;
+  }
+  return below ?? node('aggregate');
+}
+
+function compact(v: unknown): string {
+  const s = JSON.stringify(v, (_k, x) => (typeof x === 'bigint' ? Number(x) : x));
+  return s.length > 160 ? s.slice(0, 157) + '…' : s;
+}
+
+/**
+ * Parses mongosh / shell-style output: unquoted keys, single quotes, trailing
+ * commas, and wrappers like Long('5'), ObjectId("…"), ISODate(…),
+ * Timestamp({ t: 1, i: 2 }), MinKey(), new Date(…). Wrappers become their
+ * (first) argument. Throws on malformed input.
+ */
+export function parseLoose(src: string): unknown {
+  let i = 0;
+  const err = (m: string): never => {
+    throw new Error(`${m} at ${i}`);
+  };
+  const ws = () => {
+    for (;;) {
+      while (i < src.length && /\s/.test(src[i])) i++;
+      if (src.startsWith('//', i)) while (i < src.length && src[i] !== '\n') i++;
+      else break;
+    }
+  };
+  const ident = () => {
+    const m = /^[A-Za-z_$][\w$]*/.exec(src.slice(i, i + 200));
+    if (!m) err('identifier expected');
+    i += m![0].length;
+    return m![0];
+  };
+  const str = (): string => {
+    const q = src[i++];
+    let out = '';
+    while (i < src.length && src[i] !== q) {
+      if (src[i] === '\\') {
+        const c = src[++i];
+        if (c === 'u') {
+          out += String.fromCharCode(parseInt(src.slice(i + 1, i + 5), 16));
+          i += 5;
+          continue;
+        }
+        out += { n: '\n', t: '\t', r: '\r', b: '\b', f: '\f' }[c] ?? c;
+        i++;
+      } else out += src[i++];
+    }
+    if (src[i] !== q) err('unterminated string');
+    i++;
+    return out;
+  };
+  const value = (): unknown => {
+    ws();
+    const c = src[i];
+    if (c === '{') {
+      i++;
+      const o: Record<string, unknown> = {};
+      for (;;) {
+        ws();
+        if (src[i] === '}') {
+          i++;
+          return o;
+        }
+        const k = src[i] === '"' || src[i] === "'" ? str() : ident();
+        ws();
+        if (src[i++] !== ':') err("':' expected");
+        o[k] = value();
+        ws();
+        if (src[i] === ',') i++;
+        else if (src[i] !== '}') err("',' or '}' expected");
+      }
+    }
+    if (c === '[') {
+      i++;
+      const a: unknown[] = [];
+      for (;;) {
+        ws();
+        if (src[i] === ']') {
+          i++;
+          return a;
+        }
+        a.push(value());
+        ws();
+        if (src[i] === ',') i++;
+        else if (src[i] !== ']') err("',' or ']' expected");
+      }
+    }
+    if (c === '"' || c === "'") return str();
+    const m = /^-?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?/.exec(src.slice(i, i + 64));
+    if (m) {
+      i += m[0].length;
+      return Number(m[0]);
+    }
+    let id = ident();
+    if (id === 'new') {
+      ws();
+      id = ident();
+    }
+    switch (id) {
+      case 'true':
+        return true;
+      case 'false':
+        return false;
+      case 'null':
+      case 'undefined':
+        return null;
+      case 'Infinity':
+        return Infinity;
+      case 'NaN':
+        return NaN;
+    }
+    while (src[i] === '.' && /[A-Za-z_$]/.test(src[i + 1] ?? '')) {
+      i++;
+      id += '.' + ident(); // Binary.createFromBase64(…)
+    }
+    ws();
+    if (src[i] !== '(') return id; // bare word, e.g. MinKey inside bounds
+    i++;
+    ws();
+    let arg: unknown = id;
+    if (src[i] !== ')') {
+      arg = value();
+      ws();
+      while (src[i] === ',') {
+        i++;
+        value();
+        ws();
+      }
+    }
+    if (src[i++] !== ')') err("')' expected");
+    if (typeof arg === 'string' && /^(Long|NumberLong|NumberInt|Int32|Double|Decimal128|NumberDecimal)$/.test(id)) {
+      const n = Number(arg);
+      return Number.isFinite(n) ? n : arg;
+    }
+    return arg;
+  };
+  const v = value();
+  ws();
+  if (i < src.length) err('trailing text');
+  return v;
 }
 
 function forEach(n: PlanNode, fn: (n: PlanNode) => void) {

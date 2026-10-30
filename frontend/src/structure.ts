@@ -31,9 +31,96 @@ export function outline(state: EditorState, lang: LangId): OutlineItem[] {
       return yamlOutline(state);
     case 'sql':
       return sqlOutline(state);
+    case 'javascript':
+      return jsOutline(state);
+    case 'shell':
+      return shellOutline(state);
     default:
       return [];
   }
+}
+
+// ---- JavaScript (mongosh scripts): declarations and db / rs / sh calls -----------------
+
+/** Text of the comment line(s) right above `from`, used as the description. */
+function commentAbove(state: EditorState, from: number, marker: RegExp): string | undefined {
+  const line = state.doc.lineAt(from);
+  if (line.number < 2) return undefined;
+  const prev = state.doc.line(line.number - 1).text.trim();
+  const m = marker.exec(prev);
+  return m ? m[1].trim() || undefined : undefined;
+}
+
+function jsOutline(state: EditorState): OutlineItem[] {
+  const out: OutlineItem[] = [];
+  const top = tree(state).topNode;
+  const text = (n: SyntaxNode) => state.sliceDoc(n.from, n.to);
+  const note = (n: SyntaxNode) => commentAbove(state, n.from, /^(?:\/\/+|\/\*+|\*)\s?(.*?)\s*(?:\*\/)?$/);
+  const push = (label: string, n: SyntaxNode, level = 0, detail?: string) => {
+    if (label && out.length < MAX_ITEMS) out.push({ label, detail: detail ?? note(n), level, from: n.from });
+  };
+  for (let c = top.firstChild; c; c = c.nextSibling) {
+    switch (c.name) {
+      case 'FunctionDeclaration': {
+        const id = c.getChild('VariableDefinition');
+        push((id ? text(id) : 'function') + '()', c);
+        break;
+      }
+      case 'ClassDeclaration': {
+        const id = c.getChild('VariableDefinition');
+        push('class ' + (id ? text(id) : ''), c);
+        const body = c.getChild('ClassBody');
+        for (let m = body?.firstChild; m; m = m.nextSibling)
+          if (m.name === 'MethodDeclaration') {
+            const pd = m.getChild('PropertyDefinition');
+            if (pd) push(text(pd) + '()', m, 1);
+          }
+        break;
+      }
+      case 'VariableDeclaration':
+        for (let v = c.firstChild; v; v = v.nextSibling) if (v.name === 'VariableDefinition') push(text(v), c);
+        break;
+      case 'ExpressionStatement': {
+        // db.orders.createIndex(…) → "db.orders.createIndex"
+        const src = text(c);
+        const m =
+          /^(?:await\s+)?((?:db|rs|sh)\b(?:\s*\.\s*[\w$]+|\s*\.\s*getCollection\(\s*['"][^'"]*['"]\s*\)|\s*\[\s*['"][^'"]*['"]\s*\])*)/.exec(
+            src,
+          );
+        const line = state.doc.lineAt(c.from);
+        if (m) push(m[1].replace(/\s+/g, ''), c);
+        else if (/^\s*use\s+\S+/.test(line.text) && !out.some((o) => o.from === line.from))
+          out.push({ label: line.text.trim().replace(/;$/, ''), level: 0, from: line.from });
+        break;
+      }
+      default: {
+        // mongosh commands parsed as errors / identifiers: "use shop"
+        const line = state.doc.lineAt(c.from).text.trim();
+        if (/^use\s+\S+/.test(line) && !out.some((o) => o.from === state.doc.lineAt(c.from).from))
+          out.push({ label: line.replace(/;$/, ''), level: 0, from: state.doc.lineAt(c.from).from });
+      }
+    }
+  }
+  return out;
+}
+
+// ---- Shell: functions ----------------------------------------------------------------
+
+function shellOutline(state: EditorState): OutlineItem[] {
+  const out: OutlineItem[] = [];
+  const re = /^\s*(?:function\s+([\w.:-]+)\s*(?:\(\s*\))?|([\w.:-]+)\s*\(\s*\))\s*(?:\{|\(|$)/;
+  for (let i = 1; i <= state.doc.lines && out.length < MAX_ITEMS; i++) {
+    const line = state.doc.line(i);
+    const m = re.exec(line.text);
+    if (!m) continue;
+    out.push({
+      label: (m[1] ?? m[2]) + '()',
+      detail: commentAbove(state, line.from, /^#+\s?(.*)$/),
+      level: 0,
+      from: line.from,
+    });
+  }
+  return out;
 }
 
 // ---- Markdown: headings -------------------------------------------------------------

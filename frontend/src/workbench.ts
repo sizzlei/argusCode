@@ -21,7 +21,7 @@ import {
   whitespaceExtension,
   Whitespace,
 } from './editor';
-import { DialectId, LangId, LANGS, langForName, languageExtension, extOf } from './languages';
+import { DialectId, LangId, LANGS, langForName, languageExtension, extOf, onLanguageLoaded } from './languages';
 import { ask, contextMenu, errText, h, toast } from './ui';
 
 const remote = Annotation.define<boolean>();
@@ -151,6 +151,13 @@ export class Workbench {
   ) {
     this.activeGroup = this.addGroup(0);
     this.layout();
+    // JavaScript / shell support arrives asynchronously: re-apply it to open tabs.
+    onLanguageLoaded((id) => {
+      for (const t of this.allTabs())
+        if (t.doc.lang === id)
+          this.reconfigure(t, langComp.reconfigure(languageExtension(id, this.settings.dialect, t.doc.large)));
+      this.emit('cursor');
+    });
   }
 
   // ---- events --------------------------------------------------------------
@@ -1122,5 +1129,7 @@ export class Workbench {
 }
 
 function defaultExt(lang: LangId): string {
-  return { sql: '.sql', markdown: '.md', json: '.json', yaml: '.yaml', text: '.txt' }[lang];
+  return { sql: '.sql', markdown: '.md', json: '.json', yaml: '.yaml', javascript: '.js', shell: '.sh', text: '.txt' }[
+    lang
+  ];
 }

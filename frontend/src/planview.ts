@@ -11,7 +11,17 @@ export interface PlanViewHooks {
 const INDENT = 14;
 const collapsedByEl = new WeakMap<HTMLElement, Set<string>>();
 
-const WARN_ORDER: WarnKind[] = ['hot', 'fullscan', 'disksort', 'filesort', 'temporary', 'misestimate', 'indexscan'];
+const WARN_ORDER: WarnKind[] = [
+  'hot',
+  'fullscan',
+  'disksort',
+  'filesort',
+  'temporary',
+  'examined',
+  'conversion',
+  'misestimate',
+  'indexscan',
+];
 const WARN_SUMMARY: Record<WarnKind, string> = {
   hot: '',
   fullscan: '풀스캔',
@@ -20,6 +30,8 @@ const WARN_SUMMARY: Record<WarnKind, string> = {
   temporary: '임시 테이블',
   disksort: '디스크 정렬',
   misestimate: '행 추정 오차',
+  examined: '과다 검사',
+  conversion: '암시적 형변환',
 };
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls?: string, text?: string): HTMLElementTagNameMap[K] {
@@ -33,7 +45,7 @@ export function renderPlanView(host: HTMLElement, text: string, hooks: PlanViewH
   host.className = 'plan-view';
   const plan = parsePlan(text);
   if (!plan) {
-    host.replaceChildren(help());
+    host.replaceChildren(help(text));
     return;
   }
   let collapsed = collapsedByEl.get(host);
@@ -51,7 +63,21 @@ function header(p: Plan): HTMLElement {
   const title = el('div', 'plan-title');
   title.append(
     el('span', 'plan-engine', formatLabel(p.format)),
-    el('span', 'plan-tag', p.analyzed ? 'ANALYZE (실제 실행값)' : '예상값'),
+    el(
+      'span',
+      'plan-tag',
+      p.format === 'mongo'
+        ? p.analyzed
+          ? 'executionStats (실제 실행값)'
+          : 'queryPlanner (실행 안 함)'
+        : p.format === 'oracle'
+          ? p.analyzed
+            ? 'ALLSTATS (실제 실행값)'
+            : '예상값'
+          : p.analyzed
+            ? 'ANALYZE (실제 실행값)'
+            : '예상값',
+    ),
   );
   h.append(title);
 
@@ -64,6 +90,7 @@ function header(p: Plan): HTMLElement {
   if (p.totalCost != null) stat('총 비용', fmt(p.totalCost));
   if (p.executionTime != null) stat('실행', fmt(p.executionTime) + ' ms');
   if (p.planningTime != null) stat('계획', fmt(p.planningTime) + ' ms');
+  for (const [k, v] of p.stats ?? []) stat(k, v);
   stat('노드', String(countNodes(p.root)));
   h.append(stats);
 
@@ -86,19 +113,40 @@ function header(p: Plan): HTMLElement {
 }
 
 function table(p: Plan, collapsed: Set<string>, hooks: PlanViewHooks, rerender: () => void): HTMLElement {
-  const t = el('div', 'plan-table' + (p.analyzed ? ' analyzed' : ''));
+  // Numeric columns: only those with at least one value in this plan (e.g.
+  // Oracle ALLSTATS has no cost, MongoDB has no estimates).
+  type Col = { label: string; width: number; get: (n: PlanNode) => number | undefined };
+  const all: Col[] = [
+    { label: '비용', width: 52, get: (n) => n.cost },
+    { label: '예상 행', width: 52, get: (n) => n.rows },
+    { label: p.format === 'mongo' ? '반환' : '실제 행', width: 56, get: (n) => n.actualRows },
+    { label: '시간 ms', width: 56, get: (n) => n.actualTime },
+    { label: '반복', width: 40, get: (n) => n.loops },
+  ];
+  const has = (c: Col) => {
+    let found = false;
+    const walk = (n: PlanNode) => {
+      if (found) return;
+      if (c.get(n) != null) found = true;
+      else n.children.forEach(walk);
+    };
+    walk(p.root);
+    return found;
+  };
+  const cols = all.filter(has);
+  const t = el('div', 'plan-table');
   // Every row is its own grid, so size the operation column for the deepest
   // node: deep nodes keep a readable width and the panel scrolls sideways
   // instead of wrapping operation names one word per line.
   const depthOf = (n: PlanNode): number => (n.children.length ? 1 + Math.max(...n.children.map(depthOf)) : 0);
   const opMin = 170 + Math.min(depthOf(p.root), 14) * INDENT;
-  t.style.setProperty('--plan-op-min', opMin + 'px');
-  t.style.minWidth = opMin + (p.analyzed ? 360 : 210) + 'px';
+  const heatW = p.selfMetric === 'buffers' ? 84 : 70;
+  t.style.setProperty('--plan-cols', `minmax(${opMin}px, 1fr) ${cols.map((c) => c.width + 'px').join(' ')} ${heatW}px`);
+  t.style.minWidth = opMin + cols.reduce((s, c) => s + c.width + 6, 0) + heatW + 16 + 'px';
   const head = el('div', 'plan-row plan-colhead');
-  head.append(el('span', 'pc-op', '작업'), el('span', 'pc-num', '비용'), el('span', 'pc-num', '예상 행'));
-  if (p.analyzed)
-    head.append(el('span', 'pc-num', '실제 행'), el('span', 'pc-num', '시간 ms'), el('span', 'pc-num', '반복'));
-  head.append(el('span', 'pc-heat', '자체'));
+  head.append(el('span', 'pc-op', '작업'));
+  for (const c of cols) head.append(el('span', 'pc-num', c.label));
+  head.append(el('span', 'pc-heat', p.selfMetric === 'buffers' ? '자체 Buffers' : '자체'));
   t.append(head);
 
   const add = (n: PlanNode, depth: number, path: string) => {
@@ -123,22 +171,34 @@ function table(p: Plan, collapsed: Set<string>, hooks: PlanViewHooks, rerender: 
     for (const w of [...n.warnings].sort((a, b) => WARN_ORDER.indexOf(a.kind) - WARN_ORDER.indexOf(b.kind)))
       line1.append(el('span', 'plan-badge w-' + w.kind, w.label));
     main.append(line1);
-    for (const d of n.details) main.append(el('div', 'plan-detail', d));
+    for (const d of n.details) {
+      const det = el('div', 'plan-detail', d);
+      // Long predicates (Oracle filters can run to dozens of lines) are clamped
+      // to two lines; click to expand / collapse.
+      if (d.length > 180) {
+        det.classList.add('clamp');
+        det.title = '클릭해서 펼치기/접기';
+        det.addEventListener('click', (e) => {
+          e.stopPropagation();
+          det.classList.toggle('open');
+        });
+      }
+      main.append(det);
+    }
     op.append(tw, main);
-    row.append(op, el('span', 'pc-num', fmt(n.cost)), el('span', 'pc-num', fmt(n.rows)));
-    if (p.analyzed)
-      row.append(
-        el('span', 'pc-num', fmt(n.actualRows)),
-        el('span', 'pc-num', fmt(n.actualTime)),
-        el('span', 'pc-num', fmt(n.loops)),
-      );
+    row.append(op);
+    for (const c of cols) row.append(el('span', 'pc-num', fmt(c.get(n))));
     const heat = el('span', 'pc-heat');
     const bar = el('span', 'plan-bar');
     bar.style.width = Math.round(n.heat * 100) + '%';
     bar.style.opacity = String(0.35 + n.heat * 0.65);
     heat.append(bar, el('span', 'plan-bar-label', n.self > 0 ? fmt(n.self) : ''));
     heat.title =
-      n.self > 0 ? `자체 ${p.analyzed ? '시간' : '비용'} ${fmt(n.self)} (최대 대비 ${Math.round(n.heat * 100)}%)` : '';
+      n.self > 0
+        ? `자체 ${{ buffers: 'Buffers', time: '시간', cost: '비용' }[p.selfMetric]} ${fmt(n.self)} (최대 대비 ${Math.round(
+            n.heat * 100,
+          )}%)`
+        : '';
     row.append(heat);
     if (n.line != null) {
       row.classList.add('jump');
@@ -152,14 +212,23 @@ function table(p: Plan, collapsed: Set<string>, hooks: PlanViewHooks, rerender: 
   return t;
 }
 
-function help(): HTMLElement {
+function help(text = ''): HTMLElement {
   const d = el('div', 'plan-help');
+  if (/Predicate Information/i.test(text))
+    d.append(
+      el('h3', '', '실행계획 표가 없습니다'),
+      el(
+        'p',
+        '',
+        "Predicate Information만으로는 트리를 만들 수 없습니다. DBMS_XPLAN 결과의 'Plan hash value'부터 '| Id | Operation | …' 표까지 함께 붙여 넣으세요.",
+      ),
+    );
   d.append(
     el('h3', '', '실행계획을 인식할 수 없습니다'),
     el(
       'p',
       '',
-      '이 문서에 아래 명령의 결과를 그대로 붙여 넣으세요. mysql / psql 클라이언트의 표 테두리는 자동으로 제거됩니다.',
+      '이 문서에 아래 명령의 결과를 그대로 붙여 넣으세요. mysql / psql 클라이언트의 표 테두리와 mongosh 표기(Long(…) 등)는 자동으로 처리됩니다.',
     ),
   );
   const ul = el('ul');
@@ -168,6 +237,9 @@ function help(): HTMLElement {
     'MySQL — EXPLAIN FORMAT=TREE SELECT …  /  EXPLAIN ANALYZE SELECT …',
     'PostgreSQL — EXPLAIN (FORMAT JSON) SELECT …  /  EXPLAIN (ANALYZE, FORMAT JSON) …',
     'PostgreSQL — EXPLAIN SELECT …  /  EXPLAIN ANALYZE SELECT … (텍스트)',
+    'Oracle — EXPLAIN PLAN FOR …; SELECT * FROM TABLE(DBMS_XPLAN.DISPLAY);',
+    "Oracle — SELECT * FROM TABLE(DBMS_XPLAN.DISPLAY_CURSOR(NULL, NULL, 'ALLSTATS LAST'));  (실제 실행값, /*+ gather_plan_statistics */ 필요)",
+    'MongoDB / DocumentDB — db.col.find(…).explain("executionStats")  /  db.col.explain("executionStats").aggregate([…])',
   ])
     ul.append(el('li', '', s));
   d.append(ul);

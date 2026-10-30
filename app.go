@@ -125,7 +125,7 @@ func (a *App) OpenFileDialog() (string, error) {
 	return runtime.OpenFileDialog(a.ctx, runtime.OpenDialogOptions{
 		Title: "Open File",
 		Filters: []runtime.FileFilter{
-			{DisplayName: "Supported (*.sql;*.md;*.json;*.yaml;*.yml)", Pattern: "*.sql;*.md;*.markdown;*.json;*.yaml;*.yml"},
+			{DisplayName: "Supported (*.sql;*.md;*.json;*.yaml;*.js;*.sh)", Pattern: "*.sql;*.md;*.markdown;*.json;*.yaml;*.yml;*.js;*.mjs;*.sh;*.bash;*.zsh"},
 			{DisplayName: "All Files", Pattern: "*"},
 		},
 	})

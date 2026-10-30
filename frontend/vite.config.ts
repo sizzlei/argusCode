@@ -19,5 +19,14 @@ export default defineConfig({
     emptyOutDir: true,
     chunkSizeWarningLimit: 1200,
   },
+  // Lazily imported packages: pre-bundle them when the dev server starts, so the
+  // first JS/shell tab or JS format doesn't make Vite re-optimise and reload the page.
+  optimizeDeps: {
+    include: [
+      '@codemirror/lang-javascript',
+      '@codemirror/legacy-modes/mode/shell',
+      'js-beautify/js/src/javascript/index.js',
+    ],
+  },
   server: { port: 5173, strictPort: true },
 });
