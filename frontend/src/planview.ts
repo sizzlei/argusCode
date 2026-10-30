@@ -2,6 +2,8 @@
 // Loaded on demand the first time a plan is shown.
 
 import { countNodes, fmt, formatLabel, parsePlan, Plan, PlanNode, WarnKind } from './plan';
+import { looksLikeDeadlock, parseDeadlocks } from './deadlock';
+import { renderDeadlockView } from './deadlockview';
 
 export interface PlanViewHooks {
   /** Jump to a 0-based line in the source document. */
@@ -42,6 +44,11 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls?: string, text?: 
 }
 
 export function renderPlanView(host: HTMLElement, text: string, hooks: PlanViewHooks) {
+  // Deadlock reports share the panel (and the ⌥⌘E toggle) with execution plans.
+  if (looksLikeDeadlock(text)) {
+    const dl = parseDeadlocks(text);
+    if (dl.length) return renderDeadlockView(host, dl, hooks);
+  }
   host.className = 'plan-view';
   const plan = parsePlan(text);
   if (!plan) {
@@ -224,11 +231,11 @@ function help(text = ''): HTMLElement {
       ),
     );
   d.append(
-    el('h3', '', '실행계획을 인식할 수 없습니다'),
+    el('h3', '', '실행계획이나 데드락 기록을 인식할 수 없습니다'),
     el(
       'p',
       '',
-      '이 문서에 아래 명령의 결과를 그대로 붙여 넣으세요. mysql / psql 클라이언트의 표 테두리와 mongosh 표기(Long(…) 등)는 자동으로 처리됩니다.',
+      '이 문서에 아래 명령의 결과나 로그를 그대로 붙여 넣으세요. mysql / psql 클라이언트의 표 테두리와 mongosh 표기(Long(…) 등)는 자동으로 처리됩니다.',
     ),
   );
   const ul = el('ul');
@@ -240,6 +247,9 @@ function help(text = ''): HTMLElement {
     'Oracle — EXPLAIN PLAN FOR …; SELECT * FROM TABLE(DBMS_XPLAN.DISPLAY);',
     "Oracle — SELECT * FROM TABLE(DBMS_XPLAN.DISPLAY_CURSOR(NULL, NULL, 'ALLSTATS LAST'));  (실제 실행값, /*+ gather_plan_statistics */ 필요)",
     'MongoDB / DocumentDB — db.col.find(…).explain("executionStats")  /  db.col.explain("executionStats").aggregate([…])',
+    '데드락: MySQL — SHOW ENGINE INNODB STATUS 결과(LATEST DETECTED DEADLOCK) 또는 innodb_print_all_deadlocks 에러 로그',
+    "데드락: PostgreSQL — 서버 로그의 'ERROR:  deadlock detected'와 DETAIL 줄",
+    '데드락: Oracle — ORA-00060 트레이스 파일(Deadlock graph 포함)',
   ])
     ul.append(el('li', '', s));
   d.append(ul);

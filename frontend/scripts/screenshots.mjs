@@ -75,7 +75,7 @@ await wait(300);
 const word = await page.evaluate(() => {
   const root = document.querySelectorAll('.group')[0].querySelector('.cm-content');
   const walk = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
-  for (let n; (n = walk.nextNode()); ) {
+  for (let n; (n = walk.nextNode());) {
     const i = n.textContent.indexOf('orders');
     if (i >= 0 && /FROM/i.test(n.parentElement.closest('.cm-line').textContent)) {
       const r = document.createRange();
@@ -122,6 +122,18 @@ await wait(1500);
 await page.keyboard.press('Control+Shift+M');
 await wait(1500);
 await shot('ddl-review.png');
+
+await page.keyboard.press('Control+Shift+M'); // close the review panel
+
+// 5. deadlock report (same panel as the plan, sidebar hidden)
+await openTree('sql');
+await clickRow('deadlock.txt');
+await page.keyboard.press('Control+B');
+await page.keyboard.press('Control+Alt+E');
+await wait(1500);
+await shot('deadlock.png');
+await page.keyboard.press('Control+Alt+E');
+await page.keyboard.press('Control+B');
 
 await browser.close();
 await server.close();

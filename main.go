@@ -102,7 +102,7 @@ func buildMenu(app *App) *menu.Menu {
 	view.AddText("다음 편집 그룹으로 이동", keys.CmdOrCtrl("k"), emit("pane.next"))
 	view.AddSeparator()
 	view.AddText("Markdown 미리보기", keys.Combo("v", keys.CmdOrCtrlKey, keys.ShiftKey), emit("md.preview"))
-	view.AddText("실행계획 보기", keys.Combo("e", keys.CmdOrCtrlKey, keys.OptionOrAltKey), emit("plan.toggle"))
+	view.AddText("실행계획 / 데드락 보기", keys.Combo("e", keys.CmdOrCtrlKey, keys.OptionOrAltKey), emit("plan.toggle"))
 	view.AddText("mongosh 쿼리로 변환", nil, emit("mongo.toShell"))
 	view.AddText("DDL 검토 패널", keys.Combo("m", keys.CmdOrCtrlKey, keys.ShiftKey), emit("problems.open"))
 	view.AddText("문서 정렬", keys.Combo("f", keys.ShiftKey, keys.OptionOrAltKey), emit("format"))

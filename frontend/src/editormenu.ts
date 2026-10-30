@@ -134,7 +134,11 @@ export function showEditorMenu(view: EditorView, e: MouseEvent, hooks: EditorMen
     { label: '오른쪽으로 분할', hint: k('⌘\\', 'Ctrl+\\'), action: () => hooks.run('pane.split') },
   );
   if (lang === 'json' || lang === 'text' || lang === 'sql' || lang === 'javascript') {
-    items.push({ label: '실행계획으로 보기', hint: k('⌥⌘E', 'Ctrl+Alt+E'), action: () => hooks.run('plan.toggle') });
+    items.push({
+      label: '실행계획 / 데드락 보기',
+      hint: k('⌥⌘E', 'Ctrl+Alt+E'),
+      action: () => hooks.run('plan.toggle'),
+    });
   }
   // Shown for any document that contains a command document (log lines are
   // often pasted into the default SQL tab or a .log file).

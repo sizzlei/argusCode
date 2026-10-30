@@ -5,7 +5,7 @@ nav_order: 1
 
 # ArgusCode
 
-DBA를 위한 가벼운 데스크톱 편집기입니다. SQL · Markdown · JSON · YAML · JavaScript(mongosh) · Shell 파일을 빠르게 열고, 실행계획을 읽고, DDL을 회사 규칙으로 검토합니다.
+DBA를 위한 가벼운 데스크톱 편집기입니다. SQL · Markdown · JSON · YAML · JavaScript(mongosh) · Shell 파일을 빠르게 열고, 실행계획과 데드락 기록을 읽고, DDL을 회사 규칙으로 검토합니다.
 {: .fs-5 .fw-300 }
 
 [최신 버전 내려받기](https://github.com/sizzlei/argusCode/releases/latest){: .btn .btn-primary .mr-2 }
@@ -21,6 +21,7 @@ DBA를 위한 가벼운 데스크톱 편집기입니다. SQL · Markdown · JSON
 | --- | --- |
 | SQL | 정렬(대소문자 유지, 왼쪽 정렬 / 리버), 폴더 DDL 기반 테이블·컬럼 자동완성, 호버·정의로 이동, IN 목록 변환 |
 | 실행계획 | MySQL(JSON·TREE·ANALYZE), PostgreSQL(JSON·텍스트), Oracle(DBMS_XPLAN·ALLSTATS), MongoDB·DocumentDB(explain) 결과를 트리로 보고 병목·풀스캔·추정 오차를 표시 |
+| 데드락 분석 | MySQL(InnoDB STATUS·에러 로그), PostgreSQL(서버 로그), Oracle(ORA-00060 트레이스)의 데드락을 트랜잭션·락·대기 관계로 보여주고 원인을 설명 — [사용법](deadlock.html) |
 | DDL 검토 | 팀 규칙 파일(YAML)로 CREATE / ALTER / INDEX를 검토해 밑줄과 오른쪽 패널로 표시 — [사용법](ddl-review.html) · [규칙 작성](ddl-rules.html) |
 | MongoDB | mongosh 스크립트 자동완성·정렬, 프로파일러·슬로우 로그의 명령을 mongosh 쿼리로 변환 |
 | 편집기 | 폴더 트리, 탭·분할, 빠른 열기, 폴더 검색/바꾸기, 개요, 비교, 자동 저장, 외부 변경 감지 |
@@ -30,6 +31,12 @@ DBA를 위한 가벼운 데스크톱 편집기입니다. SQL · Markdown · JSON
 MySQL `EXPLAIN ANALYZE` 결과를 붙여 넣고 `⌥⌘E`를 누르면 오른쪽에 트리로 보여줍니다. 풀스캔·정렬·임시 테이블을 표시하고, 가장 오래 걸린 단계를 강조합니다.
 
 ![실행계획 패널](assets/screenshots/plan.png)
+
+### 데드락 분석
+
+데드락 기록을 붙여 넣고 같은 `⌥⌘E`를 누르면 트랜잭션마다 실행한 SQL, 잡은 락과 기다린 락, 롤백된 쪽, 원인 분석을 보여줍니다. → [사용법](deadlock.html)
+
+![데드락 분석](assets/screenshots/deadlock.png)
 
 ### DDL 검토
 
@@ -61,7 +68,7 @@ MySQL `EXPLAIN ANALYZE` 결과를 붙여 넣고 `⌥⌘E`를 누르면 오른쪽
 | --- | --- | --- |
 | 빠른 열기 | `⌘P` | `Ctrl+P` |
 | 문서 정렬 | `⇧⌥F` | `Shift+Alt+F` |
-| 실행계획 보기 | `⌥⌘E` | `Ctrl+Alt+E` |
+| 실행계획 / 데드락 보기 | `⌥⌘E` | `Ctrl+Alt+E` |
 | DDL 검토 패널 / 다음 문제 | `⇧⌘M` / `F8` | `Ctrl+Shift+M` / `F8` |
 | 개요 | `⌥⌘O` | `Ctrl+Alt+O` |
 | 설정 | `⌘,` | `Ctrl+,` |

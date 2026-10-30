@@ -1,6 +1,7 @@
 // Thin typed wrapper over the Wails bindings (window.go.main.App) and the
 // Wails JS runtime. When the page runs in a plain browser (`npm run dev`)
 // an in-memory mock file system is used so the UI can be developed alone.
+import deadlockDemo from '../test/fixtures/deadlock/mysql8.txt?raw';
 
 export interface Entry {
   name: string;
@@ -284,6 +285,7 @@ rules:
                         -> Single-row index lookup on m using PRIMARY (id=o.member_id)  (cost=0.25 rows=1) (actual time=0.001..0.001 rows=1 loops=33100)
 `,
   );
+  add('/demo/sql/deadlock.txt', deadlockDemo);
   add('/demo/docs/backup.zip', 'PK');
   add('/demo/config/db.yaml', `primary:\n  host: db.internal\n  port: 3306\nreplicas:\n  - host: r1\n  - host: r2\n`);
   const listDir = (dir: string): Entry[] => {

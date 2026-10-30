@@ -1,0 +1,29 @@
+2026-10-30T01:20:11.123456Z 0 [Note] [MY-012468] [InnoDB] Transactions deadlock detected, dumping detailed information.
+2026-10-30T01:20:11.123500Z 0 [Note] [MY-012469] [InnoDB] *** (1) TRANSACTION:
+TRANSACTION 2001, ACTIVE 12 sec inserting
+mysql tables in use 1, locked 1
+LOCK WAIT 4 lock struct(s), heap size 1136, 3 row lock(s)
+MySQL thread id 201, OS thread handle 1401, query id 9001 10.0.0.21 app update
+INSERT INTO coupon_issue (member_id, coupon_code) VALUES (77, '가을할인')
+2026-10-30T01:20:11.123600Z 0 [Note] [MY-012469] [InnoDB] *** (1) WAITING FOR THIS LOCK TO BE GRANTED:
+RECORD LOCKS space id 70 page no 5 n bits 72 index uk_member_coupon of table `shop`.`coupon_issue` trx id 2001 lock_mode X locks gap before rec insert intention waiting
+Record lock, heap no 1 PHYSICAL RECORD: n_fields 1; compact format; info bits 0
+ 0: len 8; hex 73757072656d756d; asc supremum;;
+
+2026-10-30T01:20:11.123700Z 0 [Note] [MY-012469] [InnoDB] *** (2) TRANSACTION:
+TRANSACTION 2002, ACTIVE 11 sec inserting
+mysql tables in use 1, locked 1
+4 lock struct(s), heap size 1136, 3 row lock(s)
+MySQL thread id 202, OS thread handle 1402, query id 9002 10.0.0.22 app update
+INSERT INTO coupon_issue (member_id, coupon_code) VALUES (78, '가을할인')
+2026-10-30T01:20:11.123800Z 0 [Note] [MY-012469] [InnoDB] *** (2) HOLDS THE LOCK(S):
+RECORD LOCKS space id 70 page no 5 n bits 72 index uk_member_coupon of table `shop`.`coupon_issue` trx id 2002 lock_mode X
+Record lock, heap no 1 PHYSICAL RECORD: n_fields 1; compact format; info bits 0
+ 0: len 8; hex 73757072656d756d; asc supremum;;
+
+2026-10-30T01:20:11.123900Z 0 [Note] [MY-012469] [InnoDB] *** (2) WAITING FOR THIS LOCK TO BE GRANTED:
+RECORD LOCKS space id 70 page no 5 n bits 72 index uk_member_coupon of table `shop`.`coupon_issue` trx id 2002 lock_mode X locks gap before rec insert intention waiting
+Record lock, heap no 1 PHYSICAL RECORD: n_fields 1; compact format; info bits 0
+ 0: len 8; hex 73757072656d756d; asc supremum;;
+
+2026-10-30T01:20:11.124000Z 0 [Note] [MY-012469] [InnoDB] *** WE ROLL BACK TRANSACTION (2)

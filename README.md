@@ -23,6 +23,7 @@ SQL · Markdown · JSON · YAML 편집에 맞춘 **가벼운 데스크톱 코드
 | Markdown | 하이라이팅(코드 블록 안의 sql/json/yaml 포함), 옆 미리보기 `⇧⌘V` |
 | JSON / YAML | 하이라이팅, 실시간 문법 검사, 정렬, 커서 위치 경로(`$.replicas[0].host`) 상태바 표시·클릭 복사, JSON↔YAML 변환(새 탭), 키 이름순 정렬, JSON 한 줄 압축 |
 | 실행계획 | `⌥⌘E` — 붙여 넣은 실행계획을 오른쪽 패널에 트리로 표시. MySQL `FORMAT=JSON`(v1·v2)·`FORMAT=TREE`·`EXPLAIN ANALYZE`, PostgreSQL `FORMAT JSON`·텍스트(ANALYZE 포함), Oracle `DBMS_XPLAN.DISPLAY`·`DISPLAY_CURSOR`(`ALLSTATS LAST` 실제 실행값, 조건절·Buffers·파티션·임시 공간·적응형 계획 표시), MongoDB·DocumentDB `explain()`(queryPlanner/executionStats, find·aggregate·샤드, mongosh 출력 그대로) 자동 인식, mysql/psql 표 테두리 자동 제거. 노드별 비용·예상/실제 행·시간·반복, 자체 비용(시간) 막대, 풀스캔·filesort·임시 테이블·디스크 정렬·행 추정 오차·과다 검사(검사 문서 대비 반환 문서) 경고, 가장 무거운 노드 표시, 클릭하면 원문 줄로 이동 |
+| 데드락 분석 | `⌥⌘E` — 데드락 기록을 붙여 넣으면 같은 오른쪽 패널에 트랜잭션별 SQL·보유 락·대기 락, 대기 관계(순환), 롤백된 쪽, 원인 분석을 표시. MySQL `SHOW ENGINE INNODB STATUS`(LATEST DETECTED DEADLOCK)·`innodb_print_all_deadlocks` 에러 로그(레코드 키 값을 PK·인덱스 값으로 해석, 갭/넥스트키/INSERT 의도 락 구분), PostgreSQL 서버 로그 `deadlock detected`, Oracle ORA-00060 트레이스(Deadlock graph, 대기 행 ROWID, TM 락 → 외래키 인덱스 확인). 항목을 누르면 원문 줄로 이동 |
 | 비교 | 저장된 버전과 비교, 다른 탭과 비교(분할 중이면 옆 그룹 문서와 바로 비교) — 나란히 보기, 변경 없는 구간 접기, `F7`/`⇧F7`로 변경 위치 이동 |
 | 경량화 | 대용량 모드(3MB 초과 파일은 하이라이트·검사 없이 열기), YAML·비교·Markdown 미리보기 라이브러리는 처음 쓸 때만 로드, 시작 화면에 시작 시간 표시 |
 | 파일 처리 | 원자적 저장(임시 파일 → rename), 줄바꿈(LF/CRLF)·UTF-8 BOM 유지 및 전환, 외부 변경 감지(파일 감시 + 창 포커스 시 확인, 저장 안 한 파일은 충돌 알림), 바이너리·20MB 초과 파일 차단 |
@@ -66,7 +67,7 @@ SQL · Markdown · JSON · YAML 편집에 맞춘 **가벼운 데스크톱 코드
 | 현재 SQL 문장 선택 | `⇧⌘A` | `Ctrl+Shift+A` |
 | 개요 | `⌥⌘O` | `Ctrl+Alt+O` |
 | DDL 검토 패널 / 다음 문제 | `⇧⌘M` / `F8` | `Ctrl+Shift+M` / `F8` |
-| 실행계획 패널 | `⌥⌘E` | `Ctrl+Alt+E` |
+| 실행계획 / 데드락 패널 | `⌥⌘E` | `Ctrl+Alt+E` |
 | 비교 화면에서 다음/이전 변경 | `F7` / `⇧F7` | `F7` / `Shift+F7` |
 
 ## 개발 환경
@@ -172,6 +173,7 @@ frontend/src/
   structure.ts / outline.ts  개요(구문 트리 기반)와 JSON/YAML 경로
   datatools.ts            JSON↔YAML 변환, 키 정렬, 압축 (yaml 지연 로딩)
   plan.ts / planview.ts   실행계획 파서(MySQL/PostgreSQL/Oracle/MongoDB, test/ 에 단위 테스트)와 패널 (지연 로딩)
+  deadlock.ts / deadlockview.ts  데드락 기록 파서(MySQL/PostgreSQL/Oracle)와 패널 — 실행계획 패널에서 자동 인식
   jslang.ts / shlang.ts   JavaScript·셸 언어 (처음 열 때 지연 로딩)
   mongotools.ts           mongosh 자동완성·호버
   jswrap.ts               JS 정렬 후 긴 줄을 괄호 단위로 나누기 (test/ 에 단위 테스트)

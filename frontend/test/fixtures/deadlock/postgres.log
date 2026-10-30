@@ -1,0 +1,11 @@
+2026-10-30 10:30:05.120 KST [41001] LOG:  process 41001 still waiting for ShareLock on transaction 90012 after 1000.051 ms
+2026-10-30 10:30:06.231 KST [41002] ERROR:  deadlock detected
+2026-10-30 10:30:06.231 KST [41002] DETAIL:  Process 41002 waits for ShareLock on transaction 90011; blocked by process 41001.
+	Process 41001 waits for ShareLock on transaction 90012; blocked by process 41002.
+	Process 41002: UPDATE orders SET status = 'CANCEL' WHERE id = 10
+	Process 41001: UPDATE orders SET status = 'PAID'
+	  WHERE id = 20
+2026-10-30 10:30:06.231 KST [41002] HINT:  See server log for query details.
+2026-10-30 10:30:06.231 KST [41002] CONTEXT:  while updating tuple (0,5) in relation "orders"
+2026-10-30 10:30:06.231 KST [41002] STATEMENT:  UPDATE orders SET status = 'CANCEL' WHERE id = 10
+2026-10-30 10:30:06.240 KST [41001] LOG:  process 41001 acquired ShareLock on transaction 90012 after 2120.4 ms

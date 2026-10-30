@@ -1,0 +1,51 @@
+Trace file /u01/app/oracle/diag/rdbms/orcl/ORCL/trace/ORCL_ora_23456.trc
+*** 2026-10-30T10:40:12.345678+09:00
+*** SESSION ID:(256.40211) 2026-10-30T10:40:12.345678+09:00
+
+DEADLOCK DETECTED ( ORA-00060 )
+
+[Transaction Deadlock]
+
+The following deadlock is not an ORACLE error. It is a
+deadlock due to user error in the design of an application
+or from issuing incorrect ad-hoc SQL. The following
+information may aid in determining the deadlock:
+
+Deadlock graph:
+                                          ------------Blocker(s)-----------  ------------Waiter(s)------------
+Resource Name                             process session holds waits serial  process session holds waits serial
+TX-000A0012-00001234-00000000-00000000         45     123     X        5432      47     256           X  40211
+TX-00080021-00005678-00000000-00000000         47     256     X       40211      45     123           X   5432
+
+Rows waited on:
+  Session 123: obj - rowid = 0001235A - AAASNaAAEAAAAJXAAB
+  (dictionary objn - 74586, file - 4, block - 599, slot - 1)
+  Session 256: obj - rowid = 0001235A - AAASNaAAEAAAAJXAAA
+  (dictionary objn - 74586, file - 4, block - 599, slot - 0)
+
+----- Information for waiting sessions -----
+Session 123:
+  sid: 123 ser: 5432 audsid: 880011 user: 105/APP
+    flags: (0x41) USR/- flags2: (0x40009) -/-/INC
+  pid: 45 O/S info: user: oracle, term: UNKNOWN, ospid: 23450
+    image: oracle@db01
+  client details:
+    O/S info: user: app, term: unknown, ospid: 1234
+    machine: app01 program: JDBC Thin Client
+    application name: JDBC Thin Client, hash value=2546894660
+  current SQL:
+  UPDATE ORDERS SET STATUS = :B1 WHERE ID = :B2
+
+Session 256:
+  sid: 256 ser: 40211 audsid: 880012 user: 105/APP
+    flags: (0x41) USR/- flags2: (0x40009) -/-/INC
+  pid: 47 O/S info: user: oracle, term: UNKNOWN, ospid: 23456
+    image: oracle@db01
+  client details:
+    O/S info: user: app, term: unknown, ospid: 1235
+    machine: app02 program: JDBC Thin Client
+    application name: JDBC Thin Client, hash value=2546894660
+  current SQL:
+  UPDATE ORDERS SET STATUS = :B1 WHERE ID = :B2
+
+----- End of information for waiting sessions -----

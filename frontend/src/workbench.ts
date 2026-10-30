@@ -875,7 +875,7 @@ export class Workbench {
 
   /** Shows/hides the execution-plan panel for the active document. */
   togglePlan(g: Group = this.activeGroup) {
-    if (!g.active) return toast('실행계획 결과를 붙여 넣은 문서를 먼저 여세요.');
+    if (!g.active) return toast('실행계획이나 데드락 기록을 붙여 넣은 문서를 먼저 여세요.');
     g.planOn = !g.planOn;
     if (g.planOn) g.reviewOn = false;
     this.showGroupContent(g);
