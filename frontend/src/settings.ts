@@ -233,7 +233,7 @@ export function openSettings(hooks: SettingsHooks) {
         h(
           'p',
           { class: 'set-intro' },
-          'SQL 문서의 CREATE / ALTER / CREATE INDEX / DROP 문을 규칙 파일(YAML) 기준으로 검토해 밑줄과 문제 목록으로 보여줍니다. ' +
+          'SQL 문서의 CREATE / ALTER / CREATE INDEX / DROP 문을 규칙 파일(YAML) 기준으로 검토해 밑줄과 오른쪽 검토 패널로 보여줍니다. ' +
             '규칙은 회사·팀 기준이므로 앱에 들어 있지 않습니다 — 팀 공용 폴더나 사내 저장소의 파일을 지정하세요.',
         ),
         h('div', { class: 'set-block' }, h('div', { class: 'set-label' }, '규칙 파일'), path, actions, status),

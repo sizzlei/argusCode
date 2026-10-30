@@ -231,6 +231,59 @@ function createMock(): Backend {
     `#!/bin/bash\nset -euo pipefail\n\n# 덤프 경로\nOUT=/backup/$(date +%F)\n\n# 컬렉션 하나 덤프\ndump_one() {\n  mongodump --uri "$MONGO_URI" --collection "$1" --out "$OUT"\n}\n\nfunction main {\n  for c in orders members; do dump_one "$c"; done\n  echo "done: $OUT"\n}\n\nmain "$@"\n`,
   );
   add('/demo/docs/erd.png', '\u0089PNG');
+  dirs.add('/demo/migration');
+  dirs.add('/demo/rules');
+  add(
+    '/demo/migration/V2026_11__coupon.sql',
+    `-- 쿠폰 발급 테이블
+CREATE TABLE coupon_issues (
+  id bigint unsigned NOT NULL AUTO_INCREMENT COMMENT 'ID',
+  member_id bigint unsigned NOT NULL COMMENT '회원 ID',
+  coupon_cd varchar(20) NOT NULL COMMENT '쿠폰 코드',
+  discount_amt float NOT NULL COMMENT '할인 금액',
+  used char(1) NOT NULL DEFAULT 'N',
+  issued_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '발급 일시',
+  updated_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '수정 일시',
+  PRIMARY KEY (id),
+  KEY ix_member (member_id),
+  KEY idx_coupon_issues_01 (member_id, issued_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='쿠폰 발급';
+
+ALTER TABLE coupon_issues ADD COLUMN order_no bigint NOT NULL COMMENT '주문 번호' AFTER member_id;
+`,
+  );
+  add(
+    '/demo/rules/ddl-rules.yaml',
+    `# 팀 DDL 규칙 (예시)
+version: 1
+rules:
+  - { id: R-01, check: table.comment.required, severity: error }
+  - { id: R-02, check: column.comment.required, severity: error }
+  - { id: R-03, check: table.requiredColumns, value: [created_at], severity: error }
+  - { id: R-04, check: index.name.pattern, value: '^idx_{table}_[0-9]{2}$', severity: error }
+  - { id: R-05, check: index.redundant, severity: error }
+  - { id: R-06, check: column.type.forbidden, value: [float, double], columns: '(amt|amount|price)', severity: error }
+  - { id: R-07, check: column.onUpdate.forbidden, severity: error }
+  - { id: R-08, check: column.suffix.types, value: { _yn: [bool, tinyint] } }
+  - { id: R-09, check: column.name.pattern, value: '_(yn|at|id|no|cd|amt|nm|de|date)$|^id$', message: 접미사 규칙을 따르지 않는 컬럼명 }
+  - { id: R-10, check: alter.addColumn.notNullWithoutDefault, severity: error }
+  - { id: R-11, check: alter.addColumn.position }
+  - { id: R-12, check: alter.algorithmLock, value: [INSTANT, INPLACE], severity: info }
+`,
+  );
+  add(
+    '/demo/sql/explain_tree.txt',
+    `-> Limit: 100 row(s)  (actual time=52.1..52.2 rows=100 loops=1)
+    -> Sort: total DESC, limit input to 100 row(s) per chunk  (actual time=52.1..52.1 rows=100 loops=1)
+        -> Table scan on <temporary>  (actual time=50.3..51.0 rows=1840 loops=1)
+            -> Aggregate using temporary table  (actual time=50.3..50.3 rows=1840 loops=1)
+                -> Nested loop inner join  (cost=4021 rows=3300) (actual time=0.2..45.1 rows=9120 loops=1)
+                    -> Filter: (o.created_at >= '2026-10-01')  (cost=3350 rows=33000) (actual time=0.1..30.2 rows=33100 loops=1)
+                        -> Table scan on o  (cost=3350 rows=99000) (actual time=0.1..25.0 rows=100000 loops=1)
+                    -> Filter: (m.grade = 'VIP')  (cost=0.25 rows=0.1) (actual time=0.001..0.001 rows=0.28 loops=33100)
+                        -> Single-row index lookup on m using PRIMARY (id=o.member_id)  (cost=0.25 rows=1) (actual time=0.001..0.001 rows=1 loops=33100)
+`,
+  );
   add('/demo/docs/backup.zip', 'PK');
   add('/demo/config/db.yaml', `primary:\n  host: db.internal\n  port: 3306\nreplicas:\n  - host: r1\n  - host: r2\n`);
   const listDir = (dir: string): Entry[] => {

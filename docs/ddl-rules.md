@@ -14,6 +14,10 @@ nav_order: 3
 
 ---
 
+이 페이지의 예시 규칙 몇 개를 적용하면 이렇게 보입니다. 패널의 `R-01` 같은 번호가 규칙의 `id`이고, 메시지는 `message`(또는 기본 문구)입니다.
+
+![규칙을 적용한 DDL 검토 결과](assets/screenshots/ddl-review.png)
+
 ## 기본 형태
 
 ```yaml

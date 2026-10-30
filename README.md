@@ -40,7 +40,7 @@ SQL · Markdown · JSON · YAML 편집에 맞춘 **가벼운 데스크톱 코드
 - [규칙 작성 가이드](https://sizzlei.github.io/argusCode/ddl-rules.html)
 - [검사 목록](https://sizzlei.github.io/argusCode/ddl-checks.html) — `frontend/src/ddlrules.ts`에서 `npm run docs`로 생성 (테스트가 최신인지 확인)
 
-문서 원본은 `docs/` 폴더입니다. 저장소 Settings → Pages → *Deploy from a branch* · `main` · `/docs`로 게시합니다.
+문서 원본은 `docs/` 폴더입니다. 문서의 스크린샷은 `npm run screenshots`(frontend, Playwright 필요)로 다시 찍습니다 — 브라우저 모의 백엔드의 예시 파일로 앱을 띄워 `docs/assets/screenshots/`에 저장합니다. 저장소 Settings → Pages → *Deploy from a branch* · `main` · `/docs`로 게시합니다.
 
 ## 단축키
 

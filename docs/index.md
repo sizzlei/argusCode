@@ -11,6 +11,8 @@ DBA를 위한 가벼운 데스크톱 편집기입니다. SQL · Markdown · JSON
 [최신 버전 내려받기](https://github.com/sizzlei/argusCode/releases/latest){: .btn .btn-primary .mr-2 }
 [DDL 규칙 작성 가이드](ddl-rules.html){: .btn }
 
+![ArgusCode 화면 — 폴더 트리, 분할 편집기, 폴더의 DDL에서 읽은 테이블 정보 호버](assets/screenshots/overview.png)
+
 ---
 
 ## 주요 기능
@@ -22,6 +24,18 @@ DBA를 위한 가벼운 데스크톱 편집기입니다. SQL · Markdown · JSON
 | DDL 검토 | 팀 규칙 파일(YAML)로 CREATE / ALTER / INDEX를 검토해 밑줄과 오른쪽 패널로 표시 — [사용법](ddl-review.html) · [규칙 작성](ddl-rules.html) |
 | MongoDB | mongosh 스크립트 자동완성·정렬, 프로파일러·슬로우 로그의 명령을 mongosh 쿼리로 변환 |
 | 편집기 | 폴더 트리, 탭·분할, 빠른 열기, 폴더 검색/바꾸기, 개요, 비교, 자동 저장, 외부 변경 감지 |
+
+### 실행계획 보기
+
+MySQL `EXPLAIN ANALYZE` 결과를 붙여 넣고 `⌥⌘E`를 누르면 오른쪽에 트리로 보여줍니다. 풀스캔·정렬·임시 테이블을 표시하고, 가장 오래 걸린 단계를 강조합니다.
+
+![실행계획 패널](assets/screenshots/plan.png)
+
+### DDL 검토
+
+팀 규칙으로 DDL을 검토해 밑줄과 오른쪽 패널로 보여줍니다. → [사용법](ddl-review.html)
+
+![DDL 검토 패널](assets/screenshots/ddl-review.png)
 
 ## 설치
 
