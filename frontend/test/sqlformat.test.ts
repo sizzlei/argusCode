@@ -124,8 +124,80 @@ test('CREATE TABLE aligns names and types and keeps table options', () => {
   );
 });
 
-test('other statements are left untouched; procedural code is refused', () => {
-  assert.equal(f('ALTER TABLE  t ADD COLUMN c INT;'), 'ALTER TABLE  t ADD COLUMN c INT;');
+test('ALTER TABLE: one action per line, column names and types aligned', () => {
+  const src = [
+    'alter table orders',
+    "  add column coupon_id bigint unsigned null comment '쿠폰' after member_id,",
+    '  add column discount_amt decimal(12,2) not null default 0,  -- 할인',
+    "  modify column memo varchar(500) not null default '',",
+    '  add index idx_orders_coupon (coupon_id), algorithm=inplace, lock=none;',
+  ].join('\n');
+  const want = [
+    'alter table orders',
+    "    add column    coupon_id    bigint unsigned null comment '쿠폰' after member_id,",
+    '    add column    discount_amt decimal(12, 2)  not null default 0, -- 할인',
+    "    modify column memo         varchar(500)    not null default '',",
+    '    add index idx_orders_coupon (coupon_id),',
+    '    algorithm=inplace,',
+    '    lock=none;',
+  ].join('\n');
+  assert.equal(f(src), want);
+  assert.equal(f(want), want);
+  // A single short action stays on one line; spacing is normalised.
+  assert.equal(f('ALTER TABLE  t\n  ADD COLUMN c INT;'), 'ALTER TABLE t ADD COLUMN c INT;');
+  // PostgreSQL
+  assert.equal(
+    f('ALTER TABLE ONLY public.t ALTER COLUMN memo TYPE varchar(500), ALTER COLUMN memo SET NOT NULL;', 'postgresql'),
+    [
+      'ALTER TABLE ONLY public.t',
+      '    ALTER COLUMN memo TYPE varchar(500),',
+      '    ALTER COLUMN memo SET NOT NULL;',
+    ].join('\n'),
+  );
+  // Oracle ADD (…) list laid out like CREATE TABLE
+  assert.equal(
+    f("alter table t add (a number(19) null, bb varchar2(10) default 'x' not null);", 'plsql'),
+    ['alter table t add (', '    a  number(19)   null,', "    bb varchar2(10) default 'x' not null", ');'].join('\n'),
+  );
+});
+
+test('CREATE … AS SELECT, CREATE INDEX and other DDL', () => {
+  assert.equal(
+    left('CREATE OR REPLACE VIEW v_orders AS select o.id, m.name from orders o join members m on m.id=o.member_id'),
+    [
+      'CREATE OR REPLACE VIEW v_orders AS',
+      'select',
+      '  o.id,',
+      '  m.name',
+      'from orders o',
+      'join members m',
+      '  on m.id = o.member_id',
+    ].join('\n'),
+  );
+  assert.equal(
+    formatSql('CREATE MATERIALIZED VIEW mv AS SELECT a, count(*) c FROM t GROUP BY a WITH NO DATA;', {
+      dialect: 'postgresql',
+    }),
+    ['CREATE MATERIALIZED VIEW mv AS', 'SELECT', '  a,', '  count(*) c', 'FROM t', 'GROUP BY a', 'WITH NO DATA;'].join(
+      '\n',
+    ),
+  );
+  assert.equal(
+    left('create table t2 as select * from t where id>10'),
+    ['create table t2 as', 'select', '  *', 'from t', 'where id > 10'].join('\n'),
+  );
+  assert.equal(
+    f('CREATE  INDEX  CONCURRENTLY idx_a\n  ON t USING btree (a, lower(b)) WHERE c IS NULL;', 'postgresql'),
+    'CREATE INDEX CONCURRENTLY idx_a ON t USING btree (a, lower(b)) WHERE c IS NULL;',
+  );
+  assert.equal(f('create unique index uk_a on t(a,b);'), 'create unique index uk_a on t(a, b);');
+  assert.equal(f("comment on column t.a  is '메모';", 'postgresql'), "comment on column t.a is '메모';");
+  assert.equal(f('DROP TABLE  IF EXISTS tmp;'), 'DROP TABLE IF EXISTS tmp;');
+  // Statements with comments inside are left as written.
+  assert.equal(f('CREATE INDEX i /* note */ ON t (a);'), 'CREATE INDEX i /* note */ ON t (a);');
+});
+
+test('procedural code is refused', () => {
   assert.throws(() => f('DELIMITER $$\nCREATE PROCEDURE p() BEGIN SELECT 1; END$$'), SqlFormatError);
   assert.throws(
     () => f('CREATE FUNCTION f() RETURNS int AS $$ select 1; $$ LANGUAGE sql;', 'postgresql'),

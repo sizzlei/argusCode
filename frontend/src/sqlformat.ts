@@ -16,8 +16,9 @@
 // * Lists use trailing commas; `AS` aliases and comparison operators are
 //   aligned. Sub-queries get their own river at the column of their "(".
 // * Keyword / identifier case is preserved exactly as written.
-// * DML (SELECT / WITH / INSERT / REPLACE / UPDATE / DELETE) and CREATE TABLE
-//   are reformatted; any other statement is left untouched.
+// * DML (SELECT / WITH / INSERT / REPLACE / UPDATE / DELETE) and DDL are
+//   reformatted: CREATE TABLE column lists, ALTER TABLE one action per line,
+//   CREATE VIEW … AS SELECT, and one-line CREATE INDEX / DROP / COMMENT ON ….
 // * Procedural code (procedures, functions, triggers, DELIMITER, BEGIN …
 //   END blocks) is refused, because ';' inside bodies cannot be split safely.
 //
@@ -417,6 +418,8 @@ interface Ctx {
   identParenSpace?: boolean;
   /** Render CASE inline (used while measuring). */
   inlineCase?: boolean;
+  /** DDL: keep the source's spacing before "(" after a name and around "=". */
+  srcSpace?: boolean;
 }
 
 function needSpace(prev: Tok | null, cur: Tok, ctx: Ctx): boolean {
@@ -426,6 +429,10 @@ function needSpace(prev: Tok | null, cur: Tok, ctx: Ctx): boolean {
   if (prev.unary) return false;
   if (cur.v === '::' || prev.v === '::') return false;
   if (prev.v === '[' || cur.v === ']') return false;
+  if (ctx.srcSpace) {
+    if (cur.t === '(' && (prev.t === 'word' || prev.t === 'qid')) return cur.s > prev.e;
+    if (cur.v === '=' || prev.v === '=') return cur.s > prev.e;
+  }
   if (cur.v === '[' && (prev.t === 'word' || prev.t === 'qid' || prev.t === ')' || prev.v === ']')) return false;
   if (cur.t === '(') {
     if (prev.t === 'word') return SPACE_BEFORE_PAREN.has(prev.u) || !!ctx.identParenSpace;
@@ -586,7 +593,11 @@ export class SqlFormatter {
         const k = body.findIndex((t) => ['SELECT', 'WITH', 'INSERT', 'REPLACE', 'UPDATE', 'DELETE'].includes(t.u));
         if (k > 0) out = [this.inline(body.slice(0, k), 0), ...this.block(body.slice(k), 0)];
       } else if (f === 'CREATE') {
-        out = this.createTable(src, body);
+        out = this.createTable(src, body) ?? this.createAs(body) ?? this.ddlLine(body);
+      } else if (f === 'ALTER') {
+        out = this.alterTable(body) ?? this.ddlLine(body);
+      } else if (DDL_ONE_LINE.has(f)) {
+        out = this.ddlLine(body);
       }
     } catch (e) {
       if (e instanceof SqlFormatError) throw e;
@@ -1105,17 +1116,9 @@ export class SqlFormatter {
     return out;
   }
 
-  // ---- CREATE TABLE ----------------------------------------------------------------------
-
-  private createTable(src: string, toks: Tok[]): string[] | null {
-    const ti = toks.findIndex((t) => t.u === 'TABLE');
-    if (ti < 0 || toks.slice(0, ti).some((t) => t.t !== 'word' && !isComment(t))) return null;
-    const pi = toks.findIndex((t, k) => k > ti && t.t === '(');
-    if (pi < 0) return null;
-    // "CREATE TABLE x AS SELECT" or "LIKE" → leave alone.
-    if (toks.slice(ti, pi).some((t) => t.u === 'AS' || t.u === 'LIKE' || t.u === 'SELECT')) return null;
-    const pe = matchParen(toks, pi);
-    const items = splitItems(toks.slice(pi + 1, pe));
+  /** Column / constraint lines of a CREATE TABLE (…) or Oracle ALTER TABLE ADD (…) list:
+   *  names and types aligned, one item per line, trailing commas. */
+  private columnLines(items: Item[]): string[] {
     const ind = sp(this.tableIndent);
     const CONSTRAINT = new Set([
       'CONSTRAINT',
@@ -1164,7 +1167,7 @@ export class SqlFormatter {
     const cols = rows.filter((r) => r.raw === undefined);
     const nameW = Math.min(40, Math.max(0, ...cols.map((r) => dw(r.name))));
     const typeW = Math.min(30, Math.max(0, ...cols.map((r) => dw(r.type))));
-    const out = [this.inline(toks.slice(0, pi), 0) + ' ('];
+    const out: string[] = [];
     rows.forEach((r, i) => {
       let line =
         r.raw !== undefined ? r.raw : [padTo(r.name, nameW), r.rest ? padTo(r.type, typeW) : r.type, r.rest].join(' ');
@@ -1173,6 +1176,21 @@ export class SqlFormatter {
       if (r.trail) line += ' ' + r.trail;
       out.push(ind + line);
     });
+    return out;
+  }
+
+  // ---- CREATE TABLE ----------------------------------------------------------------------
+
+  private createTable(src: string, toks: Tok[]): string[] | null {
+    const ti = toks.findIndex((t) => t.u === 'TABLE');
+    if (ti < 0 || toks.slice(0, ti).some((t) => t.t !== 'word' && !isComment(t))) return null;
+    const pi = toks.findIndex((t, k) => k > ti && t.t === '(');
+    if (pi < 0) return null;
+    // "CREATE TABLE x AS SELECT" or "LIKE" → leave alone.
+    if (toks.slice(ti, pi).some((t) => t.u === 'AS' || t.u === 'LIKE' || t.u === 'SELECT')) return null;
+    const pe = matchParen(toks, pi);
+    const items = splitItems(toks.slice(pi + 1, pe));
+    const out = [this.inline(toks.slice(0, pi), 0) + ' (', ...this.columnLines(items)];
     const after = toks.slice(pe + 1);
     // Table options are kept exactly as written (ENGINE=InnoDB …).
     out.push(
@@ -1180,7 +1198,173 @@ export class SqlFormatter {
     );
     return out;
   }
+
+  // ---- other DDL ---------------------------------------------------------------------------
+
+  /** One line with normalised spacing (CREATE INDEX, DROP, COMMENT ON, …). Statements
+   *  with comments are left as written. */
+  private ddlLine(toks: Tok[]): string[] | null {
+    if (toks.some(isComment)) return null;
+    return [this.render(toks, 0, { inlineCase: true, srcSpace: true }).join(' ')];
+  }
+
+  /** CREATE [OR REPLACE] VIEW / MATERIALIZED VIEW / TABLE … AS SELECT: header on one
+   *  line, the query formatted like any other. */
+  private createAs(toks: Tok[]): string[] | null {
+    let d = 0;
+    for (let k = 1; k < toks.length - 1; k++) {
+      const t = toks[k];
+      if (t.t === '(') d++;
+      else if (t.t === ')') d--;
+      else if (d === 0 && t.u === 'AS') {
+        const rest = toks.slice(k + 1);
+        const f = firstCode(rest);
+        if (!f || !['SELECT', 'WITH', '('].includes(f.t === '(' ? '(' : f.u)) continue;
+        if (f.t === '(' && firstCode(rest.slice(rest.indexOf(f) + 1))?.u !== 'SELECT') continue;
+        const head = toks.slice(0, k + 1);
+        if (head.some(isComment)) return null;
+        // View / materialized view options after the query get their own line.
+        let tail: Tok[] = [];
+        for (let w = rest.length - 2, pd = 0; w > 0; w--) {
+          if (rest[w].t === ')') pd++;
+          else if (rest[w].t === '(') pd--;
+          if (pd !== 0 || rest[w].u !== 'WITH') continue;
+          const words = rest
+            .slice(w + 1)
+            .map((t) => t.u)
+            .join(' ');
+          if (/^((NO )?DATA|((CASCADED|LOCAL) )?CHECK OPTION( CONSTRAINT \S+)?|READ ONLY)$/.test(words)) {
+            tail = rest.slice(w);
+            rest.length = w;
+          }
+          break;
+        }
+        return [
+          this.render(head, 0, { inlineCase: true, srcSpace: true }).join(' '),
+          ...this.block(rest, 0),
+          ...(tail.length ? [tail.map((t) => t.v).join(' ')] : []),
+        ];
+      }
+    }
+    return null;
+  }
+
+  /**
+   * ALTER TABLE: one action per line under the table name, ADD / MODIFY column
+   * names and types aligned. A single short action stays on one line; Oracle's
+   * ADD (…) / MODIFY (…) lists are laid out like CREATE TABLE.
+   */
+  private alterTable(toks: Tok[]): string[] | null {
+    if (toks[1]?.u !== 'TABLE' || toks.some((t) => t.t === 'bc')) return null;
+    let k = 2;
+    while (toks[k]?.t === 'word' && ['IF', 'EXISTS', 'ONLY', 'ONLINE', 'IGNORE'].includes(toks[k].u)) k++;
+    if (!toks[k] || (toks[k].t !== 'word' && toks[k].t !== 'qid')) return null;
+    k++;
+    while (toks[k]?.t === '.' && toks[k + 1]) k += 2;
+    if (toks[k]?.t === 'op' && toks[k].v === '*') k++; // PostgreSQL "ONLY t *"
+    const ctx: Ctx = { inlineCase: true, srcSpace: true };
+    const head = this.render(toks.slice(0, k), 0, ctx).join(' ');
+    const items = splitItems(toks.slice(k));
+    if (!items.length || !items[0].toks.length) return null;
+    const ind = sp(this.tableIndent);
+
+    if (items.length === 1) {
+      const code = items[0].toks;
+      const trail = items[0].trail.map((t) => t.v).join(' ');
+      // Oracle: ALTER TABLE t ADD (a NUMBER, b VARCHAR2(10))
+      if (code[0].t === 'word' && ['ADD', 'MODIFY'].includes(code[0].u) && code[1]?.t === '(') {
+        const pe = matchParen(code, 1);
+        const list = splitItems(code.slice(2, pe));
+        if (list.length > 1) {
+          const after = code.slice(pe + 1);
+          return [
+            head + ' ' + code[0].v + ' (',
+            ...this.columnLines(list),
+            ')' + (after.length ? ' ' + this.render(after, 0, ctx).join(' ') : '') + (trail ? ' ' + trail : ''),
+          ];
+        }
+      }
+      const line = this.render(code, 0, ctx).join(' ') + (trail ? ' ' + trail : '');
+      if (dw(head) + 1 + dw(line) <= 100) return [head + ' ' + line];
+      return [head, ind + line];
+    }
+
+    // Column actions: ADD [COLUMN] [IF NOT EXISTS] name type …, MODIFY …, CHANGE old new type …
+    const NOT_COLUMN = new Set([
+      'INDEX',
+      'KEY',
+      'UNIQUE',
+      'PRIMARY',
+      'CONSTRAINT',
+      'FOREIGN',
+      'FULLTEXT',
+      'SPATIAL',
+      'PARTITION',
+      'CHECK',
+      'SUBPARTITION',
+    ]);
+    const TYPE_MODS = new Set(['UNSIGNED', 'SIGNED', 'ZEROFILL', 'PRECISION', 'VARYING']);
+    type Row = { lead: string; name: string; type: string; rest: string; raw?: string; trail: string };
+    const rows: Row[] = items.map((it) => {
+      const trail = it.trail.map((t) => t.v).join(' ');
+      const code = it.toks;
+      const raw = {
+        lead: '',
+        name: '',
+        type: '',
+        rest: '',
+        raw: this.render(code, this.tableIndent, ctx).join(' '),
+        trail,
+      };
+      const v = code[0]?.u;
+      if (!['ADD', 'MODIFY', 'CHANGE'].includes(v)) return raw;
+      let j = 1;
+      if (code[j]?.u === 'COLUMN') j++;
+      if (code[j]?.u === 'IF' && code[j + 1]?.u === 'NOT' && code[j + 2]?.u === 'EXISTS') j += 3;
+      if (code[j]?.u === 'IF' && code[j + 1]?.u === 'EXISTS') j += 2;
+      const isName = (t?: Tok) => !!t && (t.t === 'qid' || (t.t === 'word' && !NOT_COLUMN.has(t.u)));
+      if (!isName(code[j])) return raw;
+      const lead = code
+        .slice(0, j)
+        .map((t) => t.v)
+        .join(' ');
+      let name = code[j++].v;
+      if (v === 'CHANGE') {
+        if (!isName(code[j])) return raw;
+        name += ' ' + code[j++].v;
+      }
+      if (!code[j] || code[j].t !== 'word') return raw;
+      let type = code[j++].v;
+      if (code[j]?.t === '(') {
+        const e = matchParen(code, j);
+        type += this.inline(code.slice(j, e + 1), 0);
+        j = e + 1;
+      }
+      while (code[j]?.t === 'word' && TYPE_MODS.has(code[j].u)) type += ' ' + code[j++].v;
+      return { lead, name, type, rest: this.render(code.slice(j), 0, ctx).join(' '), trail };
+    });
+    const cols = rows.filter((r) => r.raw === undefined);
+    const align = cols.length > 1;
+    const leadW = align ? Math.max(...cols.map((r) => dw(r.lead))) : 0;
+    const nameW = align ? Math.min(40, Math.max(...cols.map((r) => dw(r.name)))) : 0;
+    const typeW = align ? Math.min(30, Math.max(...cols.map((r) => dw(r.type)))) : 0;
+    const out = [head];
+    rows.forEach((r, i) => {
+      let line =
+        r.raw !== undefined
+          ? r.raw
+          : [padTo(r.lead, leadW), padTo(r.name, nameW), r.rest ? padTo(r.type, typeW) : r.type, r.rest].join(' ');
+      line = line.replace(/\s+$/, '');
+      if (i < rows.length - 1) line += ',';
+      if (r.trail) line += ' ' + r.trail;
+      out.push(ind + line);
+    });
+    return out;
+  }
 }
+
+/** DDL put on one line with normalised spacing. */
+const DDL_ONE_LINE = new Set(['DROP', 'TRUNCATE', 'RENAME', 'COMMENT', 'GRANT', 'REVOKE']);
 
 /** True when the text contains procedural code that must not be split on ';'. */
 function isProcedural(toks: Tok[]): boolean {

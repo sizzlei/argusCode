@@ -14,7 +14,7 @@ SQL · Markdown · JSON · YAML 편집에 맞춘 **가벼운 데스크톱 코드
 | 폴더 검색 | `⇧⌘F` 폴더 전체 찾기/바꾸기 — 대소문자·단어 단위·정규식(RE2, 바꾸기에서 `${1}`), 포함/제외 필터(`*.sql`, `db/`), 저장 안 한 편집 내용도 검색, 결과 클릭 시 해당 위치 선택, 파일별/전체 바꾸기 |
 | 탭 | 변경 표시(●), 가운데 클릭으로 닫기, 우클릭 메뉴(다른 탭 닫기 등), 드래그로 순서 변경 |
 | 분할 | `⌘\` / `Ctrl+\`로 오른쪽 분할(최대 4개), 탭을 편집 영역 오른쪽 끝으로 끌면 분할, 다른 그룹 탭바로 끌어 이동. 같은 파일을 여러 그룹에서 열면 편집 내용이 실시간 동기화 |
-| SQL | 하이라이팅, 방언 선택(MySQL / PostgreSQL / Oracle / Standard, 상태바), **SQL 정렬** `⇧⌥F` — 기본은 왼쪽 정렬(SELECT 다음 줄에 컬럼, AND/OR 들여쓰기), 상태바 방언 메뉴에서 River(키워드 오른쪽 정렬, 비교 연산자 정렬)로 전환, 뒤쉼표, `AS` 별칭 세로 정렬, 서브쿼리·CASE 정렬, CREATE TABLE 컬럼/타입 정렬, 대소문자는 입력 그대로 유지, 선택 영역만 정렬 가능. **스키마 자동완성** — 폴더 안 `.sql`의 CREATE TABLE/VIEW, ALTER TABLE ADD, COMMENT ON을 읽어 테이블·컬럼(타입, 코멘트)을 제안, 별칭(`o.`)도 인식. 프로시저·트리거·DELIMITER가 있는 문서는 전체 정렬하지 않음(선택 정렬만) |
+| SQL | 하이라이팅, 방언 선택(MySQL / PostgreSQL / Oracle / Standard, 상태바), **SQL 정렬** `⇧⌥F` — 기본은 왼쪽 정렬(SELECT 다음 줄에 컬럼, AND/OR 들여쓰기), 상태바 방언 메뉴에서 River(키워드 오른쪽 정렬, 비교 연산자 정렬)로 전환, 뒤쉼표, `AS` 별칭 세로 정렬, 서브쿼리·CASE 정렬, DDL 정렬(CREATE TABLE 컬럼/타입, ALTER TABLE 동작별 한 줄·컬럼/타입 정렬, CREATE VIEW … AS SELECT, CREATE INDEX·DROP·COMMENT ON 공백 정리), 대소문자는 입력 그대로 유지, 선택 영역만 정렬 가능. **스키마 자동완성** — 폴더 안 `.sql`의 CREATE TABLE/VIEW, ALTER TABLE ADD, COMMENT ON을 읽어 테이블·컬럼(타입, 코멘트)을 제안, 별칭(`o.`)도 인식. 프로시저·트리거·DELIMITER가 있는 문서는 전체 정렬하지 않음(선택 정렬만) |
 | SQL 탐색 | 테이블·컬럼에 마우스를 올리면 타입·코멘트 표시, `⌘클릭`/`F12`로 DDL 정의 위치로 이동(별칭 `o.member_id`도 인식), 현재 문장 선택 `⇧⌘A`, 붙여 넣은 값 목록 → `IN (…)` 목록 변환(숫자는 그대로, 문자열은 따옴표, 중복 제거) |
 | 개요 | 사이드바 개요 `⌥⌘O` — SQL 문장 목록(바로 위 주석을 설명으로 표시), Markdown 제목, JSON/YAML 키 트리. 클릭하면 이동, 커서 위치 항목 강조, 필터 |
 | MongoDB (.js) | mongosh 스크립트 — 구문 강조·구문 오류 표시(`use`/`show` 명령 허용), 자동완성(`db.` 뒤 문서에 나온 컬렉션·db 메서드, 컬렉션·커서 메서드, `rs.`/`sh.` 관리 명령, `$` 조회·수정 연산자와 집계 스테이지·식 — `aggregate([…])` 안에서는 스테이지 우선), 호버 설명, 개요(`use`, `db.컬렉션.메서드`, 함수·변수), 정렬 `⇧⌥F`(js-beautify + 100자 넘는 줄은 괄호 단위로 나눠 파이프라인을 스테이지별 한 줄로) |
@@ -112,6 +112,16 @@ SELECT o.member_id,
   FROM orders o
  WHERE o.created_at >= '2026-10-01'
    AND m.grade       = 'VIP'
+```
+
+```sql
+-- ALTER TABLE: 동작마다 한 줄, ADD/MODIFY 컬럼 이름·타입 정렬
+ALTER TABLE orders
+    ADD COLUMN    coupon_id    BIGINT UNSIGNED NULL COMMENT '쿠폰' AFTER member_id,
+    MODIFY COLUMN memo         VARCHAR(500)    NOT NULL DEFAULT '',
+    ADD INDEX idx_orders_coupon (coupon_id),
+    ALGORITHM=INPLACE,
+    LOCK=NONE;
 ```
 
 ## 빌드
