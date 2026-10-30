@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -13,6 +15,7 @@ import (
 	"github.com/sizzlei/argusCode/internal/keymap"
 	"github.com/sizzlei/argusCode/internal/platform"
 	"github.com/sizzlei/argusCode/internal/sqlschema"
+	"github.com/sizzlei/argusCode/internal/update"
 	"github.com/sizzlei/argusCode/internal/watch"
 	"github.com/sizzlei/argusCode/internal/workspace"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
@@ -30,6 +33,10 @@ type App struct {
 	dirty atomic.Bool
 
 	watcher *watch.Watcher
+
+	// updating guards InstallUpdate; restart starts the installed version.
+	updating atomic.Bool
+	restart  func() error
 
 	// keys holds the user's menu shortcuts (command → combo, "" = none);
 	// missing commands use keymap.Defaults.
@@ -54,6 +61,7 @@ func NewApp() *App {
 
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
+	go update.Cleanup() // leftovers of the previous self-update
 	// Dropping a folder or files onto the window opens them.
 	runtime.OnFileDrop(ctx, func(_, _ int, paths []string) {
 		runtime.EventsEmit(ctx, "app:file-drop", paths)
@@ -96,7 +104,6 @@ func (a *App) SettingsDir() string {
 	return d
 }
 
-// SetDirty is called by the frontend whenever the unsaved state changes.
 // SetKeybindings applies the user's shortcuts to the native menu
 // (command → combo such as "mod+shift+m"; "" removes the shortcut).
 func (a *App) SetKeybindings(binds map[string]string) {
@@ -135,7 +142,92 @@ func (a *App) keyFor(cmd string) string {
 	return keymap.Defaults[cmd]
 }
 
+// SetDirty is called by the frontend whenever the unsaved state changes.
 func (a *App) SetDirty(dirty bool) { a.dirty.Store(dirty) }
+
+// ---- updates -------------------------------------------------------------
+
+// UpdateInfo is the result of an update check.
+type UpdateInfo struct {
+	Current   string          `json:"current"`
+	Available bool            `json:"available"`
+	Supported bool            `json:"supported"` // this OS / build can update itself
+	Release   *update.Release `json:"release"`
+}
+
+// CheckUpdate asks GitHub for the latest release and compares it with the
+// running version (passed by the frontend, which knows it at build time).
+func (a *App) CheckUpdate(current string) (*UpdateInfo, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	r, err := update.Latest(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return &UpdateInfo{
+		Current:   current,
+		Available: update.Newer(r.Version, current),
+		Supported: update.Supported() && r.AssetURL != "",
+		Release:   r,
+	}, nil
+}
+
+// ReleaseNotes returns the release with the given tag ("v0.9.2").
+func (a *App) ReleaseNotes(tag string) (*update.Release, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	return update.ByTag(ctx, tag)
+}
+
+// InstallUpdate downloads the release with the given tag and puts it in place
+// of the running app. Progress is emitted as "update:progress" (done, total).
+// The new version starts with RestartApp.
+func (a *App) InstallUpdate(tag string) error {
+	if !a.updating.CompareAndSwap(false, true) {
+		return errors.New("이미 업데이트 중입니다")
+	}
+	defer a.updating.Store(false)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
+	defer cancel()
+	r, err := update.ByTag(ctx, tag)
+	if err != nil {
+		return err
+	}
+	dir, err := os.MkdirTemp("", "arguscode-update-")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(dir)
+	var last time.Time
+	zip, err := update.Download(ctx, r, dir, func(done, total int64) {
+		if time.Since(last) > 100*time.Millisecond || done == total {
+			last = time.Now()
+			runtime.EventsEmit(a.ctx, "update:progress", done, total)
+		}
+	})
+	if err != nil {
+		return err
+	}
+	restart, err := update.Install(zip)
+	if err != nil {
+		return err
+	}
+	a.restart = restart
+	return nil
+}
+
+// RestartApp starts the installed update and quits this process. The
+// frontend has already asked about unsaved files.
+func (a *App) RestartApp() error {
+	if a.restart == nil {
+		return errors.New("설치된 업데이트가 없습니다")
+	}
+	if err := a.restart(); err != nil {
+		return fmt.Errorf("새 버전을 시작할 수 없습니다: %w", err)
+	}
+	a.Quit()
+	return nil
+}
 
 // ---- lifecycle helpers ---------------------------------------------------
 

@@ -49,6 +49,7 @@ import {
   shortcut,
 } from './keybindings';
 import { openSettings } from './settings';
+import { checkForUpdates, initUpdates, isNewer, showReleaseNotes } from './update';
 
 setPlatform(isMac);
 
@@ -67,6 +68,10 @@ interface Session {
   recentFiles: string[];
   sidebarView: SideView;
   search: Partial<SearchState>;
+  /** Version that last ran — release notes are shown once after an update. */
+  lastVersion?: string;
+  /** Time of the last automatic update check (ms). */
+  lastUpdateCheck?: number;
 }
 
 const defaults: Session = {
@@ -375,6 +380,10 @@ function showSettings() {
       open: (p) => void openFile(p),
       reload: () => loadDdlRules(true),
     },
+    updates: {
+      check: () => void checkForUpdates(true, autoCheck()),
+      notes: () => void showReleaseNotes('v' + __APP_VERSION__, false),
+    },
   });
 }
 
@@ -597,7 +606,8 @@ async function scanSchema(notify = false) {
   }
 }
 
-async function confirmQuit() {
+/** Asks about unsaved files and saves the session; false when cancelled. */
+async function prepareQuit(): Promise<boolean> {
   const dirty = wb.allDocs().filter((d) => d.dirty);
   if (dirty.length) {
     const v = await ask(
@@ -609,17 +619,43 @@ async function confirmQuit() {
         { label: '취소', value: '' },
       ],
     );
-    if (!v) return;
-    if (v === 'save' && !(await wb.saveAll())) return;
+    if (!v) return false;
+    if (v === 'save' && !(await wb.saveAll())) return false;
   }
   await saveSessionNow();
-  api.Quit();
+  return true;
+}
+
+async function confirmQuit() {
+  if (await prepareQuit()) api.Quit();
+}
+
+const autoCheck = () => ({
+  at: session.lastUpdateCheck ?? 0,
+  save: (t: number) => {
+    session.lastUpdateCheck = t;
+    saveSessionSoon();
+  },
+});
+
+/** After an update: release notes once. Then the periodic update check. */
+function afterBoot() {
+  initUpdates({ prepareQuit });
+  const last = session.lastVersion;
+  if (last !== __APP_VERSION__) {
+    session.lastVersion = __APP_VERSION__;
+    saveSessionSoon();
+    if (last && isNewer(__APP_VERSION__, last)) void showReleaseNotes('v' + __APP_VERSION__, true);
+  }
+  // (Not in the browser preview: its mock always reports a newer version.)
+  if (session.settings.updateCheck && inWails()) setTimeout(() => void checkForUpdates(false, autoCheck()), 4000);
 }
 
 // ---- commands -------------------------------------------------------------------------
 
 const commands: Record<string, () => unknown> = {
   'app.settings': showSettings,
+  'app.checkUpdate': () => checkForUpdates(true, autoCheck()),
   'problems.open': () => openProblems(),
   'file.new': () => wb.newUntitled(),
   'file.open': async () => {
@@ -1111,6 +1147,7 @@ async function boot() {
     startupMs = await api.StartupMillis().catch(() => 0);
     console.info(`[ArgusCode] ready in ${startupMs} ms`);
     wb.refreshEmpty();
+    afterBoot();
   });
 }
 

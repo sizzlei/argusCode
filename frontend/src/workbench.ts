@@ -57,6 +57,8 @@ export interface Settings {
   keybindings: Record<string, string>;
   /** App colour theme. */
   theme: ThemeId;
+  /** Look for a new release at startup (at most every few hours). */
+  updateCheck: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -76,6 +78,7 @@ export const DEFAULT_SETTINGS: Settings = {
   ddlRulesPath: '',
   keybindings: {},
   theme: 'dark',
+  updateCheck: true,
 };
 
 export interface GroupSession {

@@ -107,6 +107,7 @@ func buildMenu(app *App) *menu.Menu {
 	file.AddText(label("탭 닫기", "tab.close"), key("tab.close"), emit("tab.close"))
 	file.AddSeparator()
 	file.AddText(label("설정…", "app.settings"), key("app.settings"), emit("app.settings"))
+	file.AddText(label("업데이트 확인…", "app.checkUpdate"), key("app.checkUpdate"), emit("app.checkUpdate"))
 	if goruntime.GOOS != "darwin" {
 		file.AddSeparator()
 		file.AddText("종료", keys.CmdOrCtrl("q"), func(*menu.CallbackData) { runtime.Quit(app.ctx) })

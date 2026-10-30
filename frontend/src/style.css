@@ -1680,6 +1680,67 @@ button.sb-item:hover {
   visibility: hidden;
 }
 
+/* ---- updates --------------------------------------------------------------- */
+.update-progress {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  min-width: 300px;
+}
+.update-bar {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--bg-active);
+  overflow: hidden;
+}
+.update-bar-fill {
+  height: 100%;
+  width: 0;
+  background: var(--accent);
+  transition: width 0.15s;
+}
+.modal.release-modal {
+  width: 620px;
+  max-height: min(640px, calc(100vh - 120px));
+  display: flex;
+  flex-direction: column;
+}
+.release-modal .modal-title {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.release-sub {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--fg-dim);
+}
+.release-notes {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  margin: 8px 0 16px;
+  padding: 4px 14px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-editor);
+  line-height: 1.6;
+  font-size: 13px;
+  user-select: text;
+  -webkit-user-select: text;
+}
+.release-notes h2 {
+  font-size: 1.15em;
+  margin: 14px 0 6px;
+}
+.release-notes ul {
+  padding-left: 20px;
+}
+.set-actions.inline {
+  flex-wrap: nowrap;
+}
+
 /* ---- deadlock view (shares the plan panel) ------------------------------- */
 .dl-view .plan-head {
   position: static;

@@ -25,6 +25,7 @@ export interface SettingsHooks {
   /** Launch-to-first-screen time measured at boot (0 = unknown). */
   startupMs: number;
   ddl: DdlHooks;
+  updates: { check(): void; notes(): void };
 }
 
 export interface DdlHooks {
@@ -292,6 +293,17 @@ export function openSettings(hooks: SettingsHooks) {
           h('div', { class: 'set-hint' }, 'SQL · Markdown · JSON · YAML · JS · Shell 경량 편집기'),
           h('button', { class: 'btn small set-docs', onclick: () => openUrl(DOCS_URL) }, '온라인 문서 ↗'),
         ),
+        row(
+          '업데이트',
+          `현재 v${__APP_VERSION__} · 새 버전을 내려받아 설치하고 다시 시작합니다`,
+          h(
+            'span',
+            { class: 'set-actions inline' },
+            h('button', { class: 'btn small', onclick: () => hooks.updates.check() }, '업데이트 확인'),
+            h('button', { class: 'btn small', onclick: () => hooks.updates.notes() }, '릴리스 노트'),
+          ),
+        ),
+        row('시작할 때 업데이트 확인', '새 버전이 있으면 알림으로 알려줍니다 (몇 시간에 한 번)', toggle('updateCheck')),
         row('시작 시간', '실행부터 첫 화면까지', startup),
         row('설정 저장 위치', 'session.json — 설정과 열린 탭, 최근 항목', dir),
         row('초기화', '편집기·SQL·파일·단축키 설정을 기본값으로 (열린 탭과 DDL 규칙 파일은 유지)', reset),

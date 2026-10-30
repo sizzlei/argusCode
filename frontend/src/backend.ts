@@ -3,6 +3,29 @@
 // an in-memory mock file system is used so the UI can be developed alone.
 import deadlockDemo from '../test/fixtures/deadlock/mysql8.txt?raw';
 
+export interface ReleaseInfo {
+  version: string;
+  tag: string;
+  name: string;
+  /** Markdown (REST API) */
+  notes: string;
+  /** HTML (release feed, used when the API is rate limited) */
+  notesHtml?: string;
+  url: string;
+  published: string;
+  assetName: string;
+  assetUrl: string;
+  assetSize: number;
+}
+
+export interface UpdateInfo {
+  current: string;
+  available: boolean;
+  /** This OS / build can install updates itself. */
+  supported: boolean;
+  release: ReleaseInfo;
+}
+
 export interface Entry {
   name: string;
   path: string;
@@ -90,6 +113,13 @@ export interface Backend {
   SetKeybindings(binds: Record<string, string>): Promise<void>;
   /** Native window colours for the app theme. */
   SetTheme(theme: string): Promise<void>;
+  /** GitHub release check against the running version. */
+  CheckUpdate(current: string): Promise<UpdateInfo>;
+  ReleaseNotes(tag: string): Promise<ReleaseInfo>;
+  /** Downloads and installs a release; progress via the "update:progress" event. */
+  InstallUpdate(tag: string): Promise<void>;
+  /** Starts the installed version and quits. */
+  RestartApp(): Promise<void>;
   Quit(): Promise<void>;
   OpenFolderDialog(): Promise<string>;
   OpenFileDialog(): Promise<string>;
@@ -129,6 +159,21 @@ declare global {
 export const inWails = () => !!window.go?.main?.App;
 
 let mock: Backend | null = null;
+
+function mockRelease(version: string): ReleaseInfo {
+  return {
+    version,
+    tag: 'v' + version,
+    name: `v${version} — 미리보기`,
+    notes:
+      '## 새 기능\n- **데드락 분석** — `⌥⌘E`로 트랜잭션·락·대기 관계를 봅니다.\n- 라이트 테마\n\n## 수정\n- 드래그 선택 영역이 잘 보이도록 했습니다.',
+    url: 'https://github.com/sizzlei/argusCode/releases',
+    published: '2026-10-30T00:00:00Z',
+    assetName: 'ArgusCode-macos-universal.zip',
+    assetUrl: '',
+    assetSize: 6_000_000,
+  };
+}
 // Resolve the implementation at call time: the Wails runtime injects
 // window.go asynchronously, so it must not be captured at import time.
 export const api: Backend = new Proxy({} as Backend, {
@@ -315,6 +360,14 @@ rules:
     SetDirty: () => ok(undefined),
     SetKeybindings: () => ok(undefined),
     SetTheme: () => ok(undefined),
+    // Browser preview: pretend a newer release exists so the update UI can be tried.
+    CheckUpdate: (current: string) => ok({ current, available: true, supported: true, release: mockRelease('0.99.0') }),
+    ReleaseNotes: (tag: string) => ok(mockRelease(tag.replace(/^v/, ''))),
+    InstallUpdate: () => new Promise<void>((r) => setTimeout(r, 800)),
+    RestartApp: () => {
+      location.reload();
+      return ok(undefined);
+    },
     Quit: () => ok(undefined),
     OpenFolderDialog: () => ok('/demo'),
     OpenFileDialog: () => ok('/demo/sql/orders.sql'),

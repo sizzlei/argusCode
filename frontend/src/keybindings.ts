@@ -28,6 +28,7 @@ export const COMMANDS: CommandInfo[] = [
   { id: 'file.saveAll', label: '모두 저장', group: '파일', key: 'mod+alt+s', menu: true },
   { id: 'tab.close', label: '탭 닫기', group: '파일', key: 'mod+w', menu: true },
   { id: 'app.settings', label: '설정…', group: '파일', key: 'mod+,', menu: true },
+  { id: 'app.checkUpdate', label: '업데이트 확인…', group: '파일', key: '', menu: true },
 
   { id: 'quickOpen', label: '빠른 열기…', group: '이동', key: 'mod+p', menu: true },
   { id: 'view.explorer', label: '탐색기', group: '이동', key: 'mod+shift+e', menu: true },

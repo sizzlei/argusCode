@@ -30,6 +30,7 @@ SQL · Markdown · JSON · YAML 편집에 맞춘 **가벼운 데스크톱 코드
 | 편집 | 한글 우클릭 메뉴(실행 취소, 잘라내기/복사/붙여넣기, 주석 토글, 대/소문자 변환, 정렬, 찾기/바꾸기, 줄로 이동, 폴더에서 찾기, 분할), 찾기 패널·메뉴 막대 한글화 |
 | DDL 검토 | 회사·팀 규칙 파일(YAML)을 설정 > DDL 검토에서 지정하면 SQL 문서의 CREATE TABLE / ALTER TABLE / CREATE INDEX / COMMENT ON / DROP·TRUNCATE를 검토해 밑줄과 오른쪽 검토 패널(`⇧⌘M` 또는 상태 표시줄 클릭 — 문장별로 묶은 결과, 심각도 필터, 클릭하면 해당 위치로 이동, Markdown 표로 복사)로 표시. 다음·이전 문제 `F8`/`⇧F8`. MySQL·PostgreSQL·Oracle (상태 표시줄 SQL 방언 기준). 규칙은 선언형 — 이름 정규식·길이, 코멘트·PK 필수, PK 타입·자동 증가, 필수 컬럼, 엔진·문자셋·콜레이션·테이블스페이스, 금지 타입·길이 제한, NOT NULL/DEFAULT, 인덱스 이름·컬럼 수·중복 인덱스, CONCURRENTLY/ONLINE, 금지 구문, ALTER의 ALGORITHM/LOCK·AFTER·NOT NULL 추가, 예약어(DB별 내장 목록), ON UPDATE 금지, 접미사↔타입(`_yn`·`_at`…), 코멘트 형식(PII 표기 등), NULL 명시, 제약·오브젝트 이름(`idx_{table}_01`처럼 테이블명 자리표시자, PK·FK·CHECK·VIEW·PROCEDURE·SEQUENCE…) 등 44개 검사. 규칙마다 심각도·문구·번호·적용 DB·테이블/컬럼 정규식 필터·대소문자 무시·생략 허용(allowMissing). MySQL `DELIMITER` 스크립트 지원. 규칙은 앱에 없음 — "템플릿 만들기"로 모든 검사가 주석으로 정리된 빈 파일 생성. 규칙 파일을 저장하거나 창으로 돌아오면 다시 적용 |
 | 설정 | `⌘,` / `Ctrl+,` (파일 메뉴 → 설정…) — 편집기(테마 다크/라이트, 글꼴·크기·들여쓰기·줄바꿈·공백 문자 표시), SQL(방언·정렬 스타일·자동완성 키워드 대소문자), 파일(자동 저장 1초 후/포커스 이동 시, 저장 시 줄 끝 공백 제거·마지막 줄바꿈, 외부 변경 감지, 대용량 기준), 단축키(명령별로 키 조합을 눌러 지정·해제, 겹치는 명령은 자동 해제, 편집기 기본 키와 겹치면 경고, 메뉴·우클릭 메뉴 표시도 함께 바뀜), 정보(버전·시작 시간·설정 위치·초기화). 바꾸는 즉시 적용·저장 |
+| 업데이트 | 새 버전 알림(시작할 때, 몇 시간에 한 번 · 끌 수 있음) → **지금 업데이트**로 내려받아 체크섬 확인 후 설치 → **다시 시작**. 업데이트 후 첫 실행에 릴리스 노트 팝업. 파일 메뉴 → 업데이트 확인…, 설정 → 정보 (macOS·Windows) |
 | 열 수 없는 파일 | 이미지·압축·실행 파일 같은 바이너리와 20MB 넘는 파일은 탐색기·빠른 열기에 흐리게(⊘) 표시하고, 누르면 이유와 "Finder에서 보기"를 안내 |
 | 기타 | 빠른 열기 `⌘P`, 세션 복원(폴더·탭·분할·설정), 폴더/파일 드래그 앤 드롭으로 열기, 저장 안 한 파일이 있으면 종료 전 확인, 글꼴 확대/축소 |
 
@@ -149,6 +150,10 @@ git tag v0.4.0 && git push origin v0.4.0
 
 서명하지 않은 macOS 앱이라 처음 실행 시 차단되면: `xattr -dr com.apple.quarantine /Applications/ArgusCode.app`
 
+### 릴리스 노트
+
+`release-notes/<태그>.md`(예: `release-notes/v0.9.2.md`)를 커밋한 뒤 태그를 올리면 CI가 그 내용을 GitHub Release 본문으로 씁니다. 앱은 업데이트 후 처음 실행할 때 이 내용을 팝업으로 보여줍니다. CI는 배포 파일마다 `.sha256`도 올려, 앱이 내려받은 파일을 확인합니다.
+
 ### macOS 서명 (폴더 접근 허용 기억)
 
 CI가 앱 번들 전체에 서명합니다. 서명이 없으면 macOS가 폴더 접근 허용(데스크탑·문서·다운로드)을 기억하지 못해 실행할 때마다 다시 묻습니다.
@@ -176,6 +181,7 @@ internal/workspace/       파일 시스템 로직 (Wails 의존 없음, 단위 �
 internal/sqlschema/       DDL 파서 (CREATE TABLE/VIEW, ALTER ADD, COMMENT ON) → 자동완성용 스키마
 internal/watch/           fsnotify 기반 폴더 감시 (보이는 폴더만, 200ms 디바운스)
 internal/platform/        휴지통 이동 (macOS NSFileManager, Windows SHFileOperation)
+internal/update/          자동 업데이트 (GitHub Releases 확인 — REST API, 요청 한도 초과 시 releases.atom, 다운로드·체크섬, 앱 교체)
 internal/keymap/          단축키 조합("mod+shift+m") → 메뉴 가속기, 메뉴 명령 기본 단축키
 frontend/src/
   main.ts                 부트스트랩, 명령, 단축키 처리, 상태바, 세션
