@@ -6,7 +6,7 @@ nav_order: 2
 # DDL 검토 사용법
 {: .no_toc }
 
-SQL 문서의 DDL을 팀 규칙으로 검토합니다. 규칙은 앱에 들어 있지 않고, 팀이 직접 만든 YAML 파일을 불러옵니다.
+SQL 문서의 DDL을 팀 규칙으로 검토하고, 작업이 테이블을 막는지(온라인 DDL 영향) 함께 보여줍니다. 규칙은 앱에 들어 있지 않고, 팀이 직접 만든 YAML 파일을 불러옵니다. 작업 DDL의 롤백 스크립트도 만들 수 있습니다.
 {: .fs-5 .fw-300 }
 
 1. TOC
@@ -67,3 +67,53 @@ SQL 문서의 DDL을 팀 규칙으로 검토합니다. 규칙은 앱에 들어 �
 | `DROP` / `TRUNCATE` / `RENAME` | 금지 구문 검사 |
 
 SELECT·INSERT 같은 DML은 검토하지 않습니다.
+
+## 5. 온라인 DDL 영향
+
+규칙 파일이 없어도 ALTER TABLE / CREATE INDEX마다 데이터베이스가 작업을 어떻게 실행할지 예상해 검토 패널에 `온라인 DDL`로 보여줍니다. 쓰기를 막는 작업은 경고(⚠), 나머지는 정보(ⓘ)입니다. 설정 > DDL 검토 > **온라인 DDL 영향 표시**로 끌 수 있습니다.
+
+![온라인 DDL 영향](assets/screenshots/ddl-impact.png)
+
+| DB | 표시 |
+| --- | --- |
+| MySQL 8.0 / Aurora MySQL 3 | **INSTANT**(메타데이터만), **INPLACE**(DML 허용), **INPLACE + 테이블 재구성**(DML 허용, 시간·디스크 필요), **COPY / 쓰기 차단** |
+| PostgreSQL | 메타데이터만 변경 / 테이블 재작성 / 쓰기 차단(ACCESS EXCLUSIVE 등) |
+| Oracle | 온라인 진행 / 쓰기 차단 |
+
+판단에 쓰는 것:
+
+- **변경 전 컬럼 정의** — 폴더 안 DDL 파일의 CREATE TABLE에서 찾습니다. 그래서 `VARCHAR(50) → VARCHAR(100)`처럼 길이 저장 바이트가 255바이트 경계를 넘는 변경(COPY)과 넘지 않는 변경(INPLACE)을 구분합니다. 찾지 못하면 "확인 필요"로 표시합니다.
+- **같은 스크립트에서 만든 테이블**은 비어 있으므로 표시하지 않습니다.
+- **ALGORITHM / LOCK 지정** — 지정한 방식으로 실행할 수 없는 변경이 섞여 있으면(예: `ALGORITHM=INSTANT` + 인덱스 추가) 오류가 난다고 알려줍니다.
+- 버전에 따라 달라지는 것(중간 위치 컬럼 추가·컬럼 삭제의 INSTANT는 MySQL 8.0.29 / Aurora MySQL 3.05 이상)은 메시지에 함께 적습니다.
+
+{: .note }
+예상치입니다. 실제 동작은 버전·테이블 상태(FULLTEXT 인덱스, 행 형식 등)에 따라 달라질 수 있으니, 큰 테이블은 사용량이 적은 시간에 작업하고 실행 전에 해당 테이블을 쓰는 긴 트랜잭션이 없는지 확인하세요.
+
+## 6. 롤백 스크립트
+
+작업 DDL을 연 상태에서 우클릭 → **롤백 스크립트 만들기 (새 탭)** (또는 보기 메뉴). 선택 영역이 있으면 그 부분만 되돌립니다. 작업 문장을 역순으로 되돌리는 SQL이 새 탭에 열립니다.
+
+```sql
+-- [1] 2행: ALTER TABLE orders ADD COLUMN coupon_id bigint NULL …
+ALTER TABLE orders
+    DROP INDEX idx_orders_coupon,
+    MODIFY COLUMN amount decimal(12,2), -- 변경 전 정의 sql/ddl.sql:4
+    DROP COLUMN coupon_id;
+```
+
+| 작업 | 롤백 |
+| --- | --- |
+| CREATE TABLE / INDEX / VIEW … | DROP |
+| ADD COLUMN / INDEX / 제약 | DROP COLUMN / INDEX / CONSTRAINT |
+| RENAME (테이블·컬럼) | 반대 방향 RENAME |
+| MODIFY / CHANGE / ALTER COLUMN TYPE | 폴더 DDL의 **변경 전 정의**로 되돌림 |
+| DROP COLUMN / INDEX / TABLE | 폴더 DDL의 원래 정의로 다시 만듦 — **데이터는 복구되지 않음** |
+| COMMENT ON, 테이블 옵션 | 원래 코멘트·값 |
+| TRUNCATE, 이전 정의를 모르는 CREATE OR REPLACE | ✕ 자동으로 되돌릴 수 없음 |
+
+변경 전 정의는 폴더 안 DDL 파일(작업 파일 자신은 제외)의 CREATE TABLE에서 가져오고, 어느 파일 몇 번째 줄인지 주석으로 남깁니다. 찾지 못한 부분은 추측하지 않고 `-- ⚠ 확인 필요` 주석과 빈칸(`<원래 정의>`)으로 남깁니다.
+
+{: .warning }
+폴더의 DDL이 **변경 전 상태**여야 롤백이 맞습니다. 스키마 파일을 이미 변경 후 상태로 고쳐 두었다면 주석에 적힌 위치를 보고 직접 확인하세요.
+

@@ -9,6 +9,8 @@ export interface ReviewInfo {
   path: string;
   count: number;
   errors: string[];
+  /** The built-in online DDL impact check is on (works without a ruleset). */
+  impact: boolean;
 }
 
 export interface ReviewHooks {
@@ -76,9 +78,10 @@ export function renderReview(host: HTMLElement, view: EditorView, hooks: ReviewH
   const title = el('div', 'rv-title');
   title.append(el('span', 'rv-name', 'DDL 검토'));
   if (info?.path) title.append(el('span', 'rv-rules', `규칙 ${info.count}개 · ${info.path.split(/[\\/]/).pop()}`));
+  else if (info?.impact) title.append(el('span', 'rv-rules', '규칙 파일 없음 · 온라인 DDL 영향만 표시'));
   head.append(title);
 
-  if (!info?.path || (!info.count && !info.errors.length)) {
+  if (!info?.impact && (!info?.path || (!info.count && !info.errors.length))) {
     host.replaceChildren(
       head,
       notice(
@@ -89,7 +92,7 @@ export function renderReview(host: HTMLElement, view: EditorView, hooks: ReviewH
     );
     return;
   }
-  if (!info.count && info.errors.length) {
+  if (!info.impact && !info.count && info.errors.length) {
     host.replaceChildren(head, notice('규칙 파일에 오류가 있습니다', info.errors.slice(0, 5).join('\n'), hooks));
     return;
   }
@@ -123,7 +126,7 @@ export function renderReview(host: HTMLElement, view: EditorView, hooks: ReviewH
       el(
         'div',
         '',
-        /\b(CREATE|ALTER|DROP|TRUNCATE)\b/i.test(doc.toString()) ? '규칙 위반이 없습니다' : '검토할 DDL이 없습니다',
+        /\b(CREATE|ALTER|DROP|TRUNCATE)\b/i.test(doc.toString()) ? '지적할 내용이 없습니다' : '검토할 DDL이 없습니다',
       ),
     );
     host.replaceChildren(head, ok);

@@ -31,6 +31,7 @@ var Defaults = map[string]string{
 	"md.preview":      "mod+shift+v",
 	"plan.toggle":     "mod+alt+e",
 	"problems.open":   "mod+shift+m",
+	"sql.rollback":    "",
 	"mongo.toShell":   "",
 	"diff.saved":      "",
 	"diff.tabs":       "",

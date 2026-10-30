@@ -133,6 +133,7 @@ func buildMenu(app *App) *menu.Menu {
 	view.AddText(label("실행계획 / 데드락 보기", "plan.toggle"), key("plan.toggle"), emit("plan.toggle"))
 	view.AddText(label("mongosh 쿼리로 변환", "mongo.toShell"), key("mongo.toShell"), emit("mongo.toShell"))
 	view.AddText(label("DDL 검토 패널", "problems.open"), key("problems.open"), emit("problems.open"))
+	view.AddText(label("롤백 스크립트 만들기", "sql.rollback"), key("sql.rollback"), emit("sql.rollback"))
 	view.AddText(label("문서 정렬", "format"), key("format"), emit("format"))
 	view.AddText(label("개요", "view.outline"), key("view.outline"), emit("view.outline"))
 	view.AddSeparator()

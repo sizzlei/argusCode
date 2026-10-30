@@ -303,6 +303,19 @@ ALTER TABLE coupon_issues ADD COLUMN order_no bigint NOT NULL COMMENT '주문 �
 `,
   );
   add(
+    '/demo/migration/V2026_12__orders.sql',
+    `-- 주문 테이블 변경
+ALTER TABLE orders
+  ADD COLUMN coupon_id bigint NULL COMMENT '쿠폰 ID' AFTER member_id,
+  MODIFY COLUMN amount decimal(14,2) NOT NULL COMMENT '주문 금액',
+  ADD INDEX idx_orders_coupon (coupon_id);
+
+ALTER TABLE members MODIFY COLUMN grade varchar(100) COMMENT '등급';
+
+CREATE INDEX idx_orders_created ON orders (created_at);
+`,
+  );
+  add(
     '/demo/rules/ddl-rules.yaml',
     `# 팀 DDL 규칙 (예시)
 version: 1
@@ -431,7 +444,7 @@ rules:
           name: 'orders',
           kind: 'table' as const,
           comment: '주문',
-          file: 'sql/ddl.sql',
+          file: '/demo/sql/ddl.sql',
           line: 1,
           columns: [
             { name: 'id', type: 'bigint', comment: '주문 ID', line: 2 },
@@ -443,7 +456,7 @@ rules:
         {
           name: 'members',
           kind: 'table' as const,
-          file: 'sql/ddl.sql',
+          file: '/demo/sql/ddl.sql',
           line: 8,
           columns: [
             { name: 'id', type: 'bigint', line: 9 },

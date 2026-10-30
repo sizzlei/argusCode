@@ -59,6 +59,8 @@ export interface Settings {
   theme: ThemeId;
   /** Look for a new release at startup (at most every few hours). */
   updateCheck: boolean;
+  /** Built-in online DDL impact check in the DDL review. */
+  ddlImpact: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -79,6 +81,7 @@ export const DEFAULT_SETTINGS: Settings = {
   keybindings: {},
   theme: 'dark',
   updateCheck: true,
+  ddlImpact: true,
 };
 
 export interface GroupSession {
@@ -136,6 +139,8 @@ export class Group {
   body: HTMLElement;
   host: HTMLElement;
   preview: HTMLElement;
+  /** Drag handle between the editor and the side panel. */
+  splitter: HTMLElement;
   empty: HTMLElement;
   view: EditorView;
 
@@ -143,8 +148,9 @@ export class Group {
     this.tabbar = h('div', { class: 'tabbar' });
     this.host = h('div', { class: 'cm-host' });
     this.preview = h('div', { class: 'md-preview markdown-body' });
+    this.splitter = h('div', { class: 'resizer v panel-resizer', title: '드래그해서 너비 조절 · 더블클릭: 기본 너비' });
     this.empty = h('div', { class: 'group-empty' });
-    this.body = h('div', { class: 'group-body' }, this.host, this.preview, this.empty);
+    this.body = h('div', { class: 'group-body' }, this.host, this.splitter, this.preview, this.empty);
     this.el = h('div', { class: 'group' }, this.tabbar, this.body);
     this.view = new EditorView({ parent: this.host, state: EditorState.create({ doc: '' }) });
   }
@@ -163,7 +169,7 @@ export class Workbench {
   /** Runs an app command (set by main.ts). */
   onCommand?: (cmd: string) => void;
   /** Ruleset state for the DDL review panel (set by main.ts). */
-  reviewInfo?: () => { path: string; count: number; errors: string[] } | null;
+  reviewInfo?: () => { path: string; count: number; errors: string[]; impact: boolean } | null;
   /** Clipboard writer for the review panel (set by main.ts). */
   copyText?: (text: string) => void;
 
@@ -227,6 +233,7 @@ export class Workbench {
 
   private addGroup(index: number): Group {
     const g = new Group();
+    this.initSplitter(g);
     this.groups.splice(index, 0, g);
     g.view.contentDOM.addEventListener('focus', () => this.setActiveGroup(g));
     g.el.addEventListener('mousedown', () => this.setActiveGroup(g), true);
@@ -292,13 +299,60 @@ export class Workbench {
     return r;
   }
 
+  /** Side panel widths in px by kind (unset = CSS default); persisted by main.ts. */
+  panelWidths: Partial<Record<'plan' | 'md' | 'review', number>> = {};
+  /** Called after the user resized a side panel. */
+  onPanelResize?: () => void;
+
+  private applyPanelWidth(g: Group, mode: 'plan' | 'md' | 'review') {
+    const w = this.panelWidths[mode];
+    g.preview.style.flex = w ? `0 0 ${w}px` : '';
+    g.preview.style.maxWidth = w ? 'none' : '';
+  }
+
+  /** Drag to resize the side panel (review / plan / Markdown preview); double-click resets. */
+  private initSplitter(g: Group) {
+    g.splitter.addEventListener('pointerdown', (e) => {
+      const mode = this.previewMode(g);
+      if (!mode) return;
+      e.preventDefault();
+      g.splitter.setPointerCapture(e.pointerId);
+      g.body.classList.add('resizing');
+      const startX = e.clientX;
+      const startW = g.preview.offsetWidth;
+      const move = (ev: PointerEvent) => {
+        const max = Math.max(240, g.body.clientWidth - 240);
+        this.panelWidths[mode] = Math.round(Math.min(max, Math.max(220, startW - (ev.clientX - startX))));
+        for (const x of this.groups) if (this.previewMode(x) === mode) this.applyPanelWidth(x, mode);
+      };
+      const up = () => {
+        g.splitter.removeEventListener('pointermove', move);
+        g.splitter.removeEventListener('pointerup', up);
+        g.body.classList.remove('resizing');
+        this.onPanelResize?.();
+      };
+      g.splitter.addEventListener('pointermove', move);
+      g.splitter.addEventListener('pointerup', up);
+    });
+    g.splitter.addEventListener('dblclick', () => {
+      const mode = this.previewMode(g);
+      if (!mode) return;
+      delete this.panelWidths[mode];
+      for (const x of this.groups) if (this.previewMode(x) === mode) this.applyPanelWidth(x, mode);
+      this.onPanelResize?.();
+    });
+  }
+
   /** Shows editor / empty placeholder / welcome screen for a group. */
   private showGroupContent(g: Group) {
     const hasTab = !!g.active;
     g.host.style.display = hasTab ? '' : 'none';
-    const showPreview = hasTab && this.previewMode(g) !== null;
+    const mode = hasTab ? this.previewMode(g) : null;
+    const showPreview = mode !== null;
     g.preview.style.display = showPreview ? '' : 'none';
+    g.splitter.style.display = showPreview ? '' : 'none';
     g.body.classList.toggle('with-preview', showPreview);
+    if (mode) this.applyPanelWidth(g, mode);
     g.empty.style.display = hasTab ? 'none' : '';
     if (!hasTab) {
       g.empty.replaceChildren(

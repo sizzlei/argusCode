@@ -124,8 +124,17 @@ await wait(1500);
 await shot('ddl-review.png');
 
 await page.keyboard.press('Control+Shift+M'); // close the review panel
+await wait(300);
 
-// 5. deadlock report (same panel as the plan, sidebar hidden)
+// 5. online DDL impact (no ruleset needed, but the demo ruleset is loaded too)
+await clickRow('V2026_12__orders.sql');
+await wait(1500);
+await page.keyboard.press('Control+Shift+M');
+await wait(1500);
+await shot('ddl-impact.png');
+await page.keyboard.press('Control+Shift+M');
+
+// 6. deadlock report (same panel as the plan, sidebar hidden)
 await openTree('sql');
 await clickRow('deadlock.txt');
 await page.keyboard.press('Control+B');

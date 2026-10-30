@@ -23,6 +23,7 @@ DBA를 위한 가벼운 데스크톱 편집기입니다. SQL · Markdown · JSON
 | 실행계획 | MySQL(JSON·TREE·ANALYZE), PostgreSQL(JSON·텍스트), Oracle(DBMS_XPLAN·ALLSTATS), MongoDB·DocumentDB(explain) 결과를 트리로 보고 병목·풀스캔·추정 오차를 표시 |
 | 데드락 분석 | MySQL(InnoDB STATUS·에러 로그), PostgreSQL(서버 로그), Oracle(ORA-00060 트레이스)의 데드락을 트랜잭션·락·대기 관계로 보여주고 원인을 설명 — [사용법](deadlock.html) |
 | DDL 검토 | 팀 규칙 파일(YAML)로 CREATE / ALTER / INDEX를 검토해 밑줄과 오른쪽 패널로 표시 — [사용법](ddl-review.html) · [규칙 작성](ddl-rules.html) |
+| 온라인 DDL 영향 · 롤백 | ALTER / CREATE INDEX가 테이블을 재구성하거나 쓰기를 막는지 표시, 작업 DDL의 롤백 스크립트 생성 — [사용법](ddl-review.html#5-온라인-ddl-영향) |
 | MongoDB | mongosh 스크립트 자동완성·정렬, 프로파일러·슬로우 로그의 명령을 mongosh 쿼리로 변환 |
 | 편집기 | 폴더 트리, 탭·분할, 빠른 열기, 폴더 검색/바꾸기, 개요, 비교, 자동 저장, 외부 변경 감지, 다크/라이트 테마, 단축키 변경 |
 | 업데이트 | 새 버전 알림 → 앱 안에서 내려받아 설치하고 다시 시작, 업데이트 후 릴리스 노트 표시 |

@@ -262,6 +262,11 @@ export function openSettings(hooks: SettingsHooks) {
             '규칙은 회사·팀 기준이므로 앱에 들어 있지 않습니다 — 팀 공용 폴더나 사내 저장소의 파일을 지정하세요.',
         ),
         h('div', { class: 'set-block' }, h('div', { class: 'set-label' }, '규칙 파일'), path, actions, status),
+        row(
+          '온라인 DDL 영향 표시',
+          'ALTER / CREATE INDEX가 테이블을 재구성하거나 쓰기를 막는지 검토 패널에 함께 보여줍니다 (규칙 파일 없이도 동작)',
+          toggle('ddlImpact'),
+        ),
         h(
           'p',
           { class: 'set-intro' },

@@ -445,7 +445,20 @@ kbd {
 }
 .group-body.with-preview .cm-host {
   flex: 1 1 50%;
-  border-right: 1px solid var(--border);
+}
+/* Editor ↔ side panel handle (review / plan / Markdown preview) */
+.panel-resizer {
+  width: 6px;
+  margin: 0 -3px;
+}
+.panel-resizer::after {
+  transform: none;
+  inset: 0 2.5px;
+}
+.group-body.resizing,
+.group-body.resizing * {
+  cursor: col-resize !important;
+  user-select: none !important;
 }
 .group:not(.active) .cm-cursor {
   display: none;
@@ -2211,7 +2224,6 @@ button.sb-item:hover {
   max-width: 560px;
   overflow: auto;
   background: var(--bg-side);
-  border-left: 1px solid var(--border);
   font-size: 12.5px;
   user-select: text;
   -webkit-user-select: text;

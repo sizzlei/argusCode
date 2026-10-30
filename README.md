@@ -29,6 +29,7 @@ SQL · Markdown · JSON · YAML 편집에 맞춘 **가벼운 데스크톱 코드
 | 파일 처리 | 원자적 저장(임시 파일 → rename), 줄바꿈(LF/CRLF)·UTF-8 BOM 유지 및 전환, 외부 변경 감지(파일 감시 + 창 포커스 시 확인, 저장 안 한 파일은 충돌 알림), 바이너리·20MB 초과 파일 차단 |
 | 편집 | 한글 우클릭 메뉴(실행 취소, 잘라내기/복사/붙여넣기, 주석 토글, 대/소문자 변환, 정렬, 찾기/바꾸기, 줄로 이동, 폴더에서 찾기, 분할), 찾기 패널·메뉴 막대 한글화 |
 | DDL 검토 | 회사·팀 규칙 파일(YAML)을 설정 > DDL 검토에서 지정하면 SQL 문서의 CREATE TABLE / ALTER TABLE / CREATE INDEX / COMMENT ON / DROP·TRUNCATE를 검토해 밑줄과 오른쪽 검토 패널(`⇧⌘M` 또는 상태 표시줄 클릭 — 문장별로 묶은 결과, 심각도 필터, 클릭하면 해당 위치로 이동, Markdown 표로 복사)로 표시. 다음·이전 문제 `F8`/`⇧F8`. MySQL·PostgreSQL·Oracle (상태 표시줄 SQL 방언 기준). 규칙은 선언형 — 이름 정규식·길이, 코멘트·PK 필수, PK 타입·자동 증가, 필수 컬럼, 엔진·문자셋·콜레이션·테이블스페이스, 금지 타입·길이 제한, NOT NULL/DEFAULT, 인덱스 이름·컬럼 수·중복 인덱스, CONCURRENTLY/ONLINE, 금지 구문, ALTER의 ALGORITHM/LOCK·AFTER·NOT NULL 추가, 예약어(DB별 내장 목록), ON UPDATE 금지, 접미사↔타입(`_yn`·`_at`…), 코멘트 형식(PII 표기 등), NULL 명시, 제약·오브젝트 이름(`idx_{table}_01`처럼 테이블명 자리표시자, PK·FK·CHECK·VIEW·PROCEDURE·SEQUENCE…) 등 44개 검사. 규칙마다 심각도·문구·번호·적용 DB·테이블/컬럼 정규식 필터·대소문자 무시·생략 허용(allowMissing). MySQL `DELIMITER` 스크립트 지원. 규칙은 앱에 없음 — "템플릿 만들기"로 모든 검사가 주석으로 정리된 빈 파일 생성. 규칙 파일을 저장하거나 창으로 돌아오면 다시 적용 |
+| 온라인 DDL 영향 · 롤백 | DDL 검토 패널에 ALTER / CREATE INDEX의 예상 실행 방식(MySQL INSTANT·INPLACE·재구성·COPY, PostgreSQL 재작성·락, Oracle ONLINE)과 쓰기 차단 주의를 표시(규칙 파일 없이도, 끌 수 있음). 우클릭 → 롤백 스크립트 만들기 — 작업 DDL을 역순으로 되돌리는 SQL을 새 탭에, MODIFY·DROP은 폴더 DDL의 변경 전 정의 사용, 모르는 부분은 확인 필요로 표시 |
 | 설정 | `⌘,` / `Ctrl+,` (파일 메뉴 → 설정…) — 편집기(테마 다크/라이트, 글꼴·크기·들여쓰기·줄바꿈·공백 문자 표시), SQL(방언·정렬 스타일·자동완성 키워드 대소문자), 파일(자동 저장 1초 후/포커스 이동 시, 저장 시 줄 끝 공백 제거·마지막 줄바꿈, 외부 변경 감지, 대용량 기준), 단축키(명령별로 키 조합을 눌러 지정·해제, 겹치는 명령은 자동 해제, 편집기 기본 키와 겹치면 경고, 메뉴·우클릭 메뉴 표시도 함께 바뀜), 정보(버전·시작 시간·설정 위치·초기화). 바꾸는 즉시 적용·저장 |
 | 업데이트 | 새 버전 알림(시작할 때, 몇 시간에 한 번 · 끌 수 있음) → **지금 업데이트**로 내려받아 체크섬 확인 후 설치 → **다시 시작**. 업데이트 후 첫 실행에 릴리스 노트 팝업. 파일 메뉴 → 업데이트 확인…, 설정 → 정보 (macOS·Windows) |
 | 열 수 없는 파일 | 이미지·압축·실행 파일 같은 바이너리와 20MB 넘는 파일은 탐색기·빠른 열기에 흐리게(⊘) 표시하고, 누르면 이유와 "Finder에서 보기"를 안내 |
@@ -162,7 +163,7 @@ CI가 앱 번들 전체에 서명합니다. 서명이 없으면 macOS가 폴더 
 - 인증서 서명: 저장소 Secrets에 `MACOS_CERT_P12`(base64로 인코딩한 .p12)와 `MACOS_CERT_PASSWORD`를 넣으면 그 인증서로 서명해, 업데이트 후에도 허용이 유지됩니다. Apple 개발자 계정이 없으면 자체 서명 인증서로 충분합니다.
   1. 키체인 접근 → 인증서 지원 → **인증서 생성…** — 이름 `ArgusCode Signing`, 신원 유형 **자체 서명 루트**, 인증서 유형 **코드 서명**, **기본값 무시**를 켜고 유효 기간을 길게(예: 3650일)
   2. 만든 인증서를 개인 키와 함께 .p12로 내보내기
-  3. `base64 -i ArgusCode.p12 | gh secret set MACOS_CERT_P12` · `gh secret set MACOS_CERT_PASSWORD`
+  3. `base64 -i ArgusCode.p12 | pbcopy`로 복사한 뒤 GitHub 저장소 Settings → Secrets and variables → Actions → **New repository secret**에 `MACOS_CERT_P12`로 붙여 넣고, 내보낼 때 정한 암호를 `MACOS_CERT_PASSWORD`로 추가
 
   인증서가 바뀌면 macOS는 다른 앱으로 보고 한 번 다시 묻습니다. 공증(Gatekeeper 경고 제거)은 Apple 개발자 계정이 필요합니다.
 
@@ -203,7 +204,9 @@ frontend/src/
   editormenu.ts           한글 우클릭 메뉴
   ddlparse.ts / ddlrules.ts  DDL 해석(MySQL/PG/Oracle)과 규칙 검사 엔진 (test/ 에 단위 테스트)
   reserved.ts             DB별 예약어 목록 (name.reserved 검사)
-  ddlreview.ts            규칙 파일 로딩 + 편집기 진단 (규칙이 있을 때만 지연 로딩)
+  ddlimpact.ts            온라인 DDL 영향 예측 (MySQL·PostgreSQL·Oracle)
+  rollback.ts             롤백 스크립트 생성
+  ddlreview.ts            규칙 파일 로딩 + 편집기 진단 (규칙·온라인 DDL 영향, 지연 로딩)
   reviewpanel.ts          DDL 검토 결과 오른쪽 패널
   settings.ts             설정 화면 (즉시 적용, session.json에 저장)
   stubs/lang-html.ts      Markdown의 HTML 하이라이트 제거용 대체 모듈(번들 약 30% 감소)

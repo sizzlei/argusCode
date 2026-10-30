@@ -44,6 +44,7 @@ export const COMMANDS: CommandInfo[] = [
   { id: 'md.preview', label: 'Markdown 미리보기', group: '도구', key: 'mod+shift+v', menu: true },
   { id: 'plan.toggle', label: '실행계획 / 데드락 보기', group: '도구', key: 'mod+alt+e', menu: true },
   { id: 'problems.open', label: 'DDL 검토 패널', group: '도구', key: 'mod+shift+m', menu: true },
+  { id: 'sql.rollback', label: '롤백 스크립트 만들기', group: '도구', key: '', menu: true },
   { id: 'mongo.toShell', label: 'mongosh 쿼리로 변환', group: '도구', key: '', menu: true },
   { id: 'data.convert', label: 'JSON ↔ YAML 변환', group: '도구', key: '' },
   { id: 'data.sortKeys', label: '키 이름순 정렬 (JSON / YAML)', group: '도구', key: '' },

@@ -72,6 +72,8 @@ interface Session {
   lastVersion?: string;
   /** Time of the last automatic update check (ms). */
   lastUpdateCheck?: number;
+  /** Side panel widths (px) by kind. */
+  panelWidths?: Partial<Record<'plan' | 'md' | 'review', number>>;
 }
 
 const defaults: Session = {
@@ -221,7 +223,12 @@ setNavigator(async (file, line, name) => {
 const outlineView = new OutlineView(outlinePane, wb);
 initDiff(wb);
 wb.onCommand = (cmd) => run(cmd);
-wb.reviewInfo = () => ({ path: session.settings.ddlRulesPath, count: ddl.count, errors: ddl.errors });
+wb.reviewInfo = () => ({
+  path: session.settings.ddlRulesPath,
+  count: ddl.count,
+  errors: ddl.errors,
+  impact: session.settings.ddlImpact,
+});
 wb.copyText = (text) =>
   copyText(text).then(
     () => toast('DDL 검토 결과를 Markdown으로 복사했습니다.'),
@@ -328,6 +335,7 @@ function applySetting<K extends keyof Settings>(key: K, value: Settings[K]) {
       break;
     case 'dialect':
       wb.setDialect(value as DialectId);
+      void refreshBefore();
       relintDdl();
       break;
     case 'ddlRulesPath':
@@ -350,6 +358,11 @@ function applySetting<K extends keyof Settings>(key: K, value: Settings[K]) {
       st.watch = value as boolean;
       updateWatchSoon();
       break;
+    case 'ddlImpact':
+      st.ddlImpact = value as boolean;
+      saveSessionSoon();
+      void installDdlLint();
+      return;
     case 'theme':
       applyTheme(value as Settings['theme']);
       break;
@@ -400,12 +413,10 @@ const ddlDialect = () => {
 async function loadDdlRules(force = false) {
   const path = session.settings.ddlRulesPath.trim();
   if (!path) {
-    if (ddl.path || force) {
+    if (ddl.path || force || !ddlLintInstalled) {
       Object.assign(ddl, { count: 0, errors: [], modTime: 0, path: '' });
-      setDdlLint([]);
-      wb.refreshSqlLanguage();
-      updateStatus();
-      wb.refreshReview();
+      ddlRules = [];
+      await installDdlLint();
     }
     return;
   }
@@ -417,10 +428,8 @@ async function loadDdlRules(force = false) {
     modTime = (await api.Stat(path)).modTime;
   } catch (e) {
     Object.assign(ddl, { count: 0, errors: ['규칙 파일을 읽지 못했습니다: ' + errText(e)], modTime: 0, path });
-    setDdlLint([]);
-    wb.refreshSqlLanguage();
-    updateStatus();
-    wb.refreshReview();
+    ddlRules = [];
+    await installDdlLint();
     return;
   }
   if (!force && path === ddl.path && modTime === ddl.modTime) return;
@@ -428,12 +437,91 @@ async function loadDdlRules(force = false) {
   const res = await m.loadRuleset(text);
   const hadErrors = ddl.errors.join('\n');
   Object.assign(ddl, { count: res.rules.length, errors: res.errors, modTime, path });
-  setDdlLint(res.rules.length ? m.ddlLinter(res.rules, ddlDialect, scheduleStatus) : []);
+  ddlRules = res.rules;
+  await installDdlLint();
+  if (res.errors.length && res.errors.join('\n') !== hadErrors)
+    toast(`DDL 검토 규칙 오류 ${res.errors.length}개 — 설정 > DDL 검토에서 확인하세요`, 'error');
+}
+
+let ddlRules: import('./ddlrules').Rule[] = [];
+let ddlLintInstalled = false;
+
+/** (Re)installs the SQL linter: ruleset findings + the online DDL impact check. */
+async function installDdlLint() {
+  const impact = session.settings.ddlImpact;
+  if (!ddlRules.length && !impact) setDdlLint([]);
+  else {
+    const m = await import('./ddlreview');
+    setDdlLint(
+      m.ddlLinter(ddlRules, ddlDialect, scheduleStatus, () => (session.settings.ddlImpact ? beforeLookup : null)),
+    );
+    if (impact) void refreshBefore();
+  }
+  ddlLintInstalled = true;
   wb.refreshSqlLanguage();
   updateStatus();
   wb.refreshReview();
-  if (res.errors.length && res.errors.join('\n') !== hadErrors)
-    toast(`DDL 검토 규칙 오류 ${res.errors.length}개 — 설정 > DDL 검토에서 확인하세요`, 'error');
+}
+
+// ---- the folder's CREATE TABLEs: state before a change (impact check, rollback) ----
+
+let beforeTexts: { path: string; text: string }[] = [];
+let beforeFiles: import('./rollback').BeforeFile[] = [];
+let beforeKey = '';
+const beforeTables = new Map<string, import('./ddlparse').Table>();
+const beforeLookup = (name: string) => beforeTables.get(name.toLowerCase()) ?? null;
+
+/** Reads (and parses) the folder files that hold CREATE TABLE statements. */
+async function refreshBefore(force = false) {
+  const files = [...new Set(schemaTables.filter((t) => t.kind === 'table').map((t) => t.file))].slice(0, 400);
+  const key = ddlDialect() + '|' + files.join('|');
+  if (!force && key === beforeKey) return;
+  beforeKey = key;
+  const read = await Promise.all(
+    files.map((f) =>
+      api
+        .ReadFile(f)
+        .then((fc) => ({ path: f, text: fc.content }))
+        .catch(() => null),
+    ),
+  );
+  beforeTexts = read.filter((x): x is { path: string; text: string } => !!x);
+  const { beforeFile } = await import('./rollback');
+  beforeFiles = beforeTexts.map((b) =>
+    beforeFile(session.root ? relative(session.root, b.path).split('\\').join('/') : b.path, b.text, ddlDialect()),
+  );
+  beforeTables.clear();
+  for (const f of beforeFiles)
+    for (const s of f.stmts) if (s.kind === 'create') beforeTables.set(s.name.toLowerCase(), s);
+  relintDdl();
+}
+
+/** Rollback script for the active SQL document (or its selection) in a new tab. */
+async function makeRollback() {
+  const t = wb.activeTab;
+  if (!t || t.doc.lang !== 'sql') return toast('SQL 문서에서 롤백 스크립트를 만들 수 있습니다.');
+  const st = wb.stateOf(t);
+  const sel = st.selection.main;
+  const text = sel.empty ? st.doc.toString() : st.sliceDoc(sel.from, sel.to);
+  const { looksLikeDdl } = await import('./ddlparse');
+  if (!looksLikeDdl(text)) return toast('되돌릴 DDL(CREATE / ALTER / DROP …)이 없습니다.');
+  await refreshBefore();
+  const { buildRollback } = await import('./rollback');
+  const self = t.doc.path && session.root ? relative(session.root, t.doc.path).split('\\').join('/') : '';
+  const res = buildRollback({
+    src: text,
+    dialect: ddlDialect(),
+    source: t.doc.name + (sel.empty ? '' : ` (선택 영역 ${st.doc.lineAt(sel.from).number}행~)`),
+    firstLine: sel.empty ? 1 : st.doc.lineAt(sel.from).number,
+    // The script itself is not "before" — other folder files are.
+    before: beforeFiles.filter((f) => f.file !== self),
+  });
+  const base = t.doc.name.replace(/\.[^.]+$/, '');
+  wb.newUntitled(wb.activeGroup, 'sql', base + '.rollback.sql', res.text);
+  const parts = [`롤백 스크립트를 만들었습니다 — 문장 ${res.statements}개`];
+  if (res.warnings) parts.push(`확인 필요 ${res.warnings}곳`);
+  if (res.impossible) parts.push(`자동 불가 ${res.impossible}개`);
+  toast(parts.join(' · '), res.impossible ? 'error' : 'info');
 }
 
 async function createDdlTemplate(): Promise<string | null> {
@@ -454,7 +542,7 @@ async function createDdlTemplate(): Promise<string | null> {
 
 /** Re-runs the DDL review (e.g. after the SQL dialect changed). */
 function relintDdl() {
-  if (ddl.count) for (const g of wb.groups) forceLinting(g.view);
+  if (ddl.count || session.settings.ddlImpact) for (const g of wb.groups) forceLinting(g.view);
 }
 
 function openProblems() {
@@ -597,6 +685,8 @@ async function scanSchema(notify = false) {
   if (root !== session.root) return;
   setSqlSchema(schemaNamespace(schemaTables));
   setSchemaIndex(schemaTables);
+  if (session.settings.ddlImpact) void refreshBefore(true);
+  else beforeKey = '';
   wb.refreshSqlLanguage();
   updateStatus();
   wb.refreshReview();
@@ -655,6 +745,7 @@ function afterBoot() {
 
 const commands: Record<string, () => unknown> = {
   'app.settings': showSettings,
+  'sql.rollback': () => makeRollback(),
   'app.checkUpdate': () => checkForUpdates(true, autoCheck()),
   'problems.open': () => openProblems(),
   'file.new': () => wb.newUntitled(),
@@ -872,8 +963,17 @@ function updateStatus() {
         ),
       );
     }
-    if (doc.lang === 'sql' && (ddl.count || ddl.errors.length)) {
-      if (!ddl.count) right.append(statusItem('DDL 규칙 오류', ddl.errors.join('\n'), () => showSettings(), 'warn'));
+    const impactOnly = !ddl.count && !ddl.errors.length && session.settings.ddlImpact;
+    let showDdl = doc.lang === 'sql' && (ddl.count > 0 || ddl.errors.length > 0);
+    if (doc.lang === 'sql' && impactOnly) {
+      // Impact check only: show the item when it found something.
+      forEachDiagnostic(st, (d) => {
+        if (d.source === 'DDL 검토') showDdl = true;
+      });
+    }
+    if (showDdl) {
+      if (!ddl.count && !impactOnly)
+        right.append(statusItem('DDL 규칙 오류', ddl.errors.join('\n'), () => showSettings(), 'warn'));
       else {
         const n = { error: 0, warning: 0, info: 0, hint: 0 };
         forEachDiagnostic(st, (d) => {
@@ -891,7 +991,7 @@ function updateStatus() {
             label,
             total
               ? `DDL 검토: 오류 ${n.error} · 경고 ${n.warning} · 정보 ${n.info} (클릭: 검토 패널)`
-              : `DDL 검토 규칙 ${ddl.count}개 — 위반 없음`,
+              : `DDL 검토 규칙 ${ddl.count}개 — 지적할 내용 없음`,
             () => openProblems(),
             n.error ? 'error' : n.warning ? 'warn' : '',
           ),
@@ -1114,6 +1214,11 @@ async function boot() {
   wb.setWhitespace(session.settings.whitespace);
   applyTheme(session.settings.theme);
   applyKeybindings();
+  Object.assign(wb.panelWidths, session.panelWidths ?? {});
+  wb.onPanelResize = () => {
+    session.panelWidths = { ...wb.panelWidths };
+    saveSessionSoon();
+  };
   loadDdlRules();
   explorer.supportedOnly = session.supportedOnly;
   searchView = new SearchView(searchPane, wb, () => session.root, session.search, saveSessionSoon);

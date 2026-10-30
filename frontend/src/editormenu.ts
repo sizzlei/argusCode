@@ -108,6 +108,11 @@ export function showEditorMenu(view: EditorView, e: MouseEvent, hooks: EditorMen
         action: () => goToDefinition(view),
       },
       { label: '현재 문장 선택', hint: k('⇧⌘A', 'Ctrl+Shift+A'), action: () => selectStatement(view) },
+      {
+        label: hasSel ? '선택 영역의 롤백 스크립트 만들기 (새 탭)' : '롤백 스크립트 만들기 (새 탭)',
+        hint: shortcut('sql.rollback'),
+        action: () => hooks.run('sql.rollback'),
+      },
     );
   }
   if (lang === 'sql' || lang === 'text') {

@@ -40,6 +40,7 @@ export interface Index {
   at: Span;
   kind: 'primary' | 'unique' | 'index' | 'fulltext' | 'spatial' | 'foreign' | 'check';
   columns: string[]; // lower-case names (expressions as written)
+  def?: Span; // whole definition (CONSTRAINT … / KEY … (…)) inside CREATE / ALTER TABLE
 }
 
 export interface Table {
@@ -354,7 +355,7 @@ function parseIndexDef(toks: Tok[], src: string): Index | null {
         return { from: t.s, to: t.e };
       })()
     : { from: toks[0].s, to: toks[Math.min(i, toks.length - 1)].e };
-  return { name, at, kind, columns };
+  return { name, at, kind, columns, def: span(toks) };
 }
 
 const span = (toks: Tok[]): Span => ({ from: toks[0].s, to: toks[toks.length - 1].e });
