@@ -12,6 +12,7 @@ import {
   highlightActiveLine,
   highlightWhitespace,
   highlightTrailingWhitespace,
+  tooltips,
 } from '@codemirror/view';
 import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands';
 import {
@@ -162,6 +163,18 @@ const koreanPhrases = EditorState.phrases.of({
   'Revert this chunk': '이 변경 되돌리기',
 });
 
+/**
+ * Tooltips (hover, lint, autocomplete) live in <body> instead of the editor:
+ * the editor host clips its overflow, so a tooltip for the first line — shown
+ * above it — was cut off under the tab bar.
+ */
+const tooltipLayer = tooltips({
+  parent: document.body,
+  // Room = the editor area, so a tooltip for the first lines goes below the
+  // line instead of covering the tab bar.
+  tooltipSpace: (view) => view.dom.getBoundingClientRect(),
+});
+
 /** Shared, language-independent extensions. */
 function base(onUpdate: Extension): Extension {
   return [
@@ -198,6 +211,7 @@ function base(onUpdate: Extension): Extension {
     ]),
     argusTheme,
     koreanPhrases,
+    tooltipLayer,
     onUpdate,
   ];
 }
@@ -240,6 +254,7 @@ export function viewerExtensions(lang: LangId, dialect: DialectId, large = false
     themeExtension(theme),
     argusTheme,
     koreanPhrases,
+    tooltipLayer,
     languageExtension(lang, dialect, large),
   ];
 }
