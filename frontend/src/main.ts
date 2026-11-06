@@ -1155,20 +1155,20 @@ async function saveSessionNow() {
   }
 }
 
+/** Opens files/folders dropped on the window or Dock icon (folders become the workspace). */
+async function openDropped(paths: string[] | null | undefined) {
+  for (const p of paths ?? []) {
+    if (await api.IsDir(p).catch(() => false)) await openFolder(p);
+    else await openFile(p);
+  }
+}
+
 // ---- backend events --------------------------------------------------------------------
 
 function bindBackendEvents() {
   onEvent('cmd', (cmd: string) => run(cmd));
   onEvent('app:before-close', () => confirmQuit());
-  onEvent('app:file-drop', async (paths: string[]) => {
-    for (const p of paths ?? []) {
-      if (await api.IsDir(p)) {
-        await openFolder(p);
-      } else {
-        await openFile(p);
-      }
-    }
-  });
+  onEvent('app:file-drop', (paths: string[]) => void openDropped(paths));
   onEvent('fs:changed', (paths: string[]) => {
     const set = new Set(paths ?? []);
     explorer.refreshDirs(set);
@@ -1273,6 +1273,8 @@ async function boot() {
     await wb.restore(session.editors);
   }
   if (!inWails() && !session.root) await openFolder('/demo');
+  // Files dropped on the Dock icon / opened from Finder while starting up.
+  await openDropped(await api.TakePendingOpens().catch(() => []));
   wb.layout();
   updateChrome();
   updateWatchSoon();

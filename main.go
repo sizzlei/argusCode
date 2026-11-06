@@ -52,6 +52,8 @@ func main() {
 			TitleBar:             mac.TitleBarDefault(),
 			Appearance:           appearance,
 			WebviewIsTransparent: false,
+			// Files dropped on the Dock icon or opened with "다음으로 열기".
+			OnFileOpen: func(p string) { app.openPaths([]string{p}) },
 			About: &mac.AboutInfo{
 				Title:   "ArgusCode",
 				Message: "Lightweight editor for SQL · Markdown · JSON · YAML",

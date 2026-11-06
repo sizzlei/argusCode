@@ -42,6 +42,12 @@ type App struct {
 	// missing commands use keymap.Defaults.
 	keys map[string]string
 
+	// Files dropped on the window or opened from Finder/Dock before the
+	// frontend is ready wait in pendingOpen (see TakePendingOpens).
+	openMu      sync.Mutex
+	pendingOpen []string
+	frontReady  bool
+
 	searchMu     sync.Mutex
 	searchCancel context.CancelFunc
 	schemaCancel context.CancelFunc
@@ -63,9 +69,7 @@ func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
 	go update.Cleanup() // leftovers of the previous self-update
 	// Dropping a folder or files onto the window opens them.
-	runtime.OnFileDrop(ctx, func(_, _ int, paths []string) {
-		runtime.EventsEmit(ctx, "app:file-drop", paths)
-	})
+	runtime.OnFileDrop(ctx, func(_, _ int, paths []string) { a.openPaths(paths) })
 	// File-system changes in watched folders are pushed to the frontend.
 	if w, err := watch.New(200*time.Millisecond, func(paths []string) {
 		runtime.EventsEmit(ctx, "fs:changed", paths)
@@ -230,6 +234,38 @@ func (a *App) RestartApp() error {
 }
 
 // ---- lifecycle helpers ---------------------------------------------------
+
+// openPaths opens dropped files/folders (or ones macOS asks us to open) in
+// the frontend, or queues them until the frontend has booted.
+func (a *App) openPaths(raw []string) {
+	paths := platform.NormalizeDropPaths(raw)
+	if len(paths) == 0 {
+		return
+	}
+	a.openMu.Lock()
+	ready := a.frontReady && a.ctx != nil
+	if !ready {
+		a.pendingOpen = append(a.pendingOpen, paths...)
+	}
+	a.openMu.Unlock()
+	if ready {
+		runtime.EventsEmit(a.ctx, "app:file-drop", paths)
+	}
+}
+
+// TakePendingOpens is called once the frontend has booted: it returns the
+// paths queued so far, and later ones are sent as "app:file-drop" events.
+func (a *App) TakePendingOpens() []string {
+	a.openMu.Lock()
+	defer a.openMu.Unlock()
+	a.frontReady = true
+	p := a.pendingOpen
+	a.pendingOpen = nil
+	if p == nil {
+		p = []string{}
+	}
+	return p
+}
 
 // StartPath returns a folder/file given on the command line, if any.
 func (a *App) StartPath() string { return a.startPath }

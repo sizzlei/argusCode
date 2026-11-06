@@ -106,6 +106,8 @@ export interface FileStat {
 
 export interface Backend {
   StartPath(): Promise<string>;
+  /** Files dropped/opened before boot; later ones arrive as "app:file-drop". */
+  TakePendingOpens(): Promise<string[]>;
   LoadSession(): Promise<string>;
   SaveSession(js: string): Promise<void>;
   SetDirty(dirty: boolean): Promise<void>;
@@ -365,6 +367,7 @@ rules:
   const ok = <T>(v: T) => Promise.resolve(v);
   return {
     StartPath: () => ok(''),
+    TakePendingOpens: () => ok([]),
     LoadSession: () => ok(session),
     SaveSession: (js) => {
       session = js;

@@ -9,6 +9,7 @@
 //           the view's state, which keeps memory and DOM cost low.
 
 import { Annotation, EditorState, Text, Transaction, StateEffect } from '@codemirror/state';
+import { openErrorMessage } from './openerror';
 import { EditorView } from '@codemirror/view';
 import { api, copyText, basename, dirname, isMac } from './backend';
 import {
@@ -504,12 +505,7 @@ export class Workbench {
     } catch (e) {
       const msg = errText(e);
       markUnopenable(path, msg);
-      toast(
-        /binary/i.test(msg)
-          ? `'${basename(path)}'은(는) 텍스트 파일이 아니라 편집기로 열 수 없습니다.`
-          : `열 수 없습니다: ${basename(path)} — ${msg}`,
-        'error',
-      );
+      toast(openErrorMessage(basename(path), msg), 'error');
       return null;
     }
     // Another call may have opened it while we were reading.

@@ -12,8 +12,59 @@
   "info": {
     "companyName": "sizzlei",
     "productName": "ArgusCode",
-    "productVersion": "0.9.5",
+    "productVersion": "0.9.6",
     "copyright": "Copyright © 2026 sizzlei",
-    "comments": "Lightweight editor for SQL, Markdown, JSON and YAML"
+    "comments": "Lightweight editor for SQL, Markdown, JSON and YAML",
+    "fileAssociations": [
+      {
+        "ext": "sql",
+        "name": "SQL Script",
+        "description": "SQL Script",
+        "iconName": "appicon",
+        "role": "Editor"
+      },
+      {
+        "ext": "ddl",
+        "name": "SQL Script",
+        "description": "SQL Script",
+        "iconName": "appicon",
+        "role": "Editor"
+      },
+      {
+        "ext": "md",
+        "name": "Markdown Document",
+        "description": "Markdown Document",
+        "iconName": "appicon",
+        "role": "Editor"
+      },
+      {
+        "ext": "markdown",
+        "name": "Markdown Document",
+        "description": "Markdown Document",
+        "iconName": "appicon",
+        "role": "Editor"
+      },
+      {
+        "ext": "json",
+        "name": "JSON Document",
+        "description": "JSON Document",
+        "iconName": "appicon",
+        "role": "Editor"
+      },
+      {
+        "ext": "yaml",
+        "name": "YAML Document",
+        "description": "YAML Document",
+        "iconName": "appicon",
+        "role": "Editor"
+      },
+      {
+        "ext": "yml",
+        "name": "YAML Document",
+        "description": "YAML Document",
+        "iconName": "appicon",
+        "role": "Editor"
+      }
+    ]
   }
 }
