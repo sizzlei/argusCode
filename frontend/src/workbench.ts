@@ -102,6 +102,7 @@ export class Doc {
   id = ++docSeq;
   eol: 'LF' | 'CRLF' = 'LF';
   bom = false;
+  encoding = 'UTF-8';
   modTime = 0;
   dirty = false;
   /** Set when EOL/BOM changed: dirty even though the text is unchanged. */
@@ -515,6 +516,7 @@ export class Workbench {
     if (doc.large) toast(`'${doc.name}'은(는) 큰 파일이라 하이라이트·문법 검사 없이 열었습니다 (대용량 모드).`);
     doc.eol = fc.eol;
     doc.bom = fc.bom;
+    doc.encoding = fc.encoding || 'UTF-8';
     doc.modTime = fc.modTime;
     this.docs.set(path, doc);
     const t = this.makeTab(doc, group, doc.saved);
@@ -570,7 +572,7 @@ export class Workbench {
       }
     }
     try {
-      doc.modTime = await api.WriteFile(path, snapshot.toString(), doc.eol, doc.bom);
+      doc.modTime = await api.WriteFile(path, snapshot.toString(), doc.eol, doc.bom, doc.encoding);
     } catch (e) {
       toast(`저장 실패: ${errText(e)}`, 'error');
       return false;
@@ -665,6 +667,7 @@ export class Workbench {
       doc.modTime = fc.modTime;
       doc.eol = fc.eol;
       doc.bom = fc.bom;
+      doc.encoding = fc.encoding || 'UTF-8';
       doc.dirty = false;
       doc.metaDirty = false;
       doc.missing = false;

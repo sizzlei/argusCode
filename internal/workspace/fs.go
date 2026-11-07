@@ -43,6 +43,8 @@ type FileContent struct {
 	ModTime int64  `json:"modTime"` // unix millis
 	EOL     string `json:"eol"`     // "LF" or "CRLF"
 	BOM     bool   `json:"bom"`
+	// Encoding is EncUTF8, EncUTF16LE, EncUTF16BE or EncCP949.
+	Encoding string `json:"encoding"`
 }
 
 // FileStat is a cheap freshness check for an open file.
@@ -149,12 +151,9 @@ func ReadFile(path string) (*FileContent, error) {
 	if err != nil {
 		return nil, err
 	}
-	bom := bytes.HasPrefix(b, utf8BOM)
-	if bom {
-		b = b[len(utf8BOM):]
-	}
-	if looksBinary(b) {
-		return nil, ErrBinary
+	b, enc, bom, err := decodeText(b)
+	if err != nil {
+		return nil, err
 	}
 	eol := "LF"
 	if bytes.Contains(b, []byte("\r\n")) {
@@ -162,11 +161,12 @@ func ReadFile(path string) (*FileContent, error) {
 		b = bytes.ReplaceAll(b, []byte("\r\n"), []byte("\n"))
 	}
 	return &FileContent{
-		Path:    path,
-		Content: string(b),
-		ModTime: st.ModTime().UnixMilli(),
-		EOL:     eol,
-		BOM:     bom,
+		Path:     path,
+		Content:  string(b),
+		ModTime:  st.ModTime().UnixMilli(),
+		EOL:      eol,
+		BOM:      bom,
+		Encoding: enc,
 	}, nil
 }
 
@@ -192,13 +192,14 @@ func looksBinary(b []byte) bool {
 // WriteFile atomically writes content (LF-separated) to path, converting to
 // the requested EOL and optionally prefixing a BOM. Permissions of an
 // existing file are preserved. Returns the new modification time.
-func WriteFile(path, content, eol string, bom bool) (int64, error) {
+func WriteFile(path, content, eol string, bom bool, enc string) (int64, error) {
 	data := []byte(content)
 	if eol == "CRLF" {
 		data = bytes.ReplaceAll(data, []byte("\n"), []byte("\r\n"))
 	}
-	if bom {
-		data = append(append([]byte{}, utf8BOM...), data...)
+	data, err := encodeText(data, enc, bom)
+	if err != nil {
+		return 0, err
 	}
 	perm := fs.FileMode(0o644)
 	if st, err := os.Stat(path); err == nil {

@@ -39,7 +39,7 @@ func SaveState(js string) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
-	_, err = WriteFile(filepath.Join(dir, "session.json"), js, "LF", false)
+	_, err = WriteFile(filepath.Join(dir, "session.json"), js, "LF", false, EncUTF8)
 	return err
 }
 

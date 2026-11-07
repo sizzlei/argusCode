@@ -1,7 +1,6 @@
 package workspace
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"io/fs"
@@ -201,8 +200,8 @@ func Search(ctx context.Context, root string, o SearchOptions) (*SearchResult, e
 				if err != nil {
 					continue
 				}
-				b = bytes.TrimPrefix(b, utf8BOM)
-				if looksBinary(b) {
+				b, _, _, err = decodeText(b)
+				if err != nil {
 					continue
 				}
 				searched.Add(1)
@@ -345,7 +344,7 @@ func ReplaceText(text string, o SearchOptions, repl string) (string, int, error)
 	return strings.Join(lines, "\n"), n, nil
 }
 
-// ReplaceInFile rewrites a file on disk, keeping its EOL style and BOM.
+// ReplaceInFile rewrites a file on disk, keeping its EOL style, BOM and encoding.
 // Returns the number of replacements.
 func ReplaceInFile(path string, o SearchOptions, repl string) (int, error) {
 	fc, err := ReadFile(path)
@@ -356,7 +355,7 @@ func ReplaceInFile(path string, o SearchOptions, repl string) (int, error) {
 	if err != nil || n == 0 {
 		return 0, err
 	}
-	if _, err := WriteFile(path, out, fc.EOL, fc.BOM); err != nil {
+	if _, err := WriteFile(path, out, fc.EOL, fc.BOM, fc.Encoding); err != nil {
 		return 0, err
 	}
 	return n, nil

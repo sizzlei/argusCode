@@ -321,8 +321,8 @@ func (a *App) ListFiles(root string) ([]string, error) { return workspace.ListFi
 
 func (a *App) ReadFile(path string) (*workspace.FileContent, error) { return workspace.ReadFile(path) }
 
-func (a *App) WriteFile(path, content, eol string, bom bool) (int64, error) {
-	return workspace.WriteFile(path, content, eol, bom)
+func (a *App) WriteFile(path, content, eol string, bom bool, encoding string) (int64, error) {
+	return workspace.WriteFile(path, content, eol, bom, encoding)
 }
 
 func (a *App) Stat(path string) workspace.FileStat { return workspace.Stat(path) }

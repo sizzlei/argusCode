@@ -41,6 +41,8 @@ export interface FileContent {
   modTime: number;
   eol: 'LF' | 'CRLF';
   bom: boolean;
+  /** 'UTF-8' | 'UTF-16LE' | 'UTF-16BE' | 'CP949' */
+  encoding: string;
 }
 
 export interface SearchOptions {
@@ -129,7 +131,7 @@ export interface Backend {
   ListDir(dir: string): Promise<Entry[]>;
   ListFiles(root: string): Promise<string[]>;
   ReadFile(path: string): Promise<FileContent>;
-  WriteFile(path: string, content: string, eol: string, bom: boolean): Promise<number>;
+  WriteFile(path: string, content: string, eol: string, bom: boolean, encoding: string): Promise<number>;
   Stat(path: string): Promise<FileStat>;
   CreateFile(dir: string, name: string): Promise<string>;
   CreateDir(dir: string, name: string): Promise<string>;
@@ -394,7 +396,7 @@ rules:
     ReadFile: (p) => {
       const f = files.get(p);
       if (!f) return Promise.reject('no such file: ' + p);
-      return ok({ path: p, content: f.content, modTime: f.mtime, eol: 'LF' as const, bom: false });
+      return ok({ path: p, content: f.content, modTime: f.mtime, eol: 'LF' as const, bom: false, encoding: 'UTF-8' });
     },
     WriteFile: (p, c) => {
       const m = Date.now();

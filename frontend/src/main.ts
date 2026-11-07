@@ -540,7 +540,7 @@ async function createDdlTemplate(): Promise<string | null> {
   const st = await api.Stat(path).catch(() => null);
   if (!st?.exists) {
     const { templateYaml } = await import('./ddlreview');
-    await api.WriteFile(path, templateYaml(), 'LF', false);
+    await api.WriteFile(path, templateYaml(), 'LF', false, 'UTF-8');
     toast('규칙 템플릿을 만들었습니다: ' + path);
   }
   return path;
@@ -914,10 +914,21 @@ function updateStatus() {
           })),
         ),
       ),
-      statusItem('UTF-8' + (doc.bom ? ' BOM' : ''), '인코딩 (클릭: BOM 전환)', () => {
-        doc.bom = !doc.bom;
-        markEncodingChange();
-      }),
+      doc.encoding === 'UTF-8'
+        ? statusItem('UTF-8' + (doc.bom ? ' BOM' : ''), '인코딩 (클릭: BOM 전환)', () => {
+            doc.bom = !doc.bom;
+            markEncodingChange();
+          })
+        : statusItem(
+            (doc.encoding === 'CP949' ? 'EUC-KR' : doc.encoding) + (doc.bom ? ' BOM' : ''),
+            `${doc.encoding} 인코딩으로 열었고 저장할 때도 유지합니다 (클릭: UTF-8로 변환)`,
+            () => {
+              doc.encoding = 'UTF-8';
+              doc.bom = false;
+              markEncodingChange();
+              toast(`'${doc.name}'을(를) 저장하면 UTF-8로 바뀝니다.`);
+            },
+          ),
       statusItem(doc.eol, '줄바꿈 (클릭: LF/CRLF 전환)', () => {
         doc.eol = doc.eol === 'LF' ? 'CRLF' : 'LF';
         markEncodingChange();

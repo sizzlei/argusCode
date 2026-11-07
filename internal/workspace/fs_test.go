@@ -44,7 +44,7 @@ func TestReadWriteRoundTripCRLFAndBOM(t *testing.T) {
 		t.Fatalf("content not normalised: %q", fc.Content)
 	}
 
-	_, err = WriteFile(p, fc.Content+"SELECT 3;\n", fc.EOL, fc.BOM)
+	_, err = WriteFile(p, fc.Content+"SELECT 3;\n", fc.EOL, fc.BOM, fc.Encoding)
 	must(t, err)
 	b, _ := os.ReadFile(p)
 	want := string(raw) + "SELECT 3;\r\n"

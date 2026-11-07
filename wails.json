@@ -12,7 +12,7 @@
   "info": {
     "companyName": "sizzlei",
     "productName": "ArgusCode",
-    "productVersion": "0.9.6",
+    "productVersion": "0.9.7",
     "copyright": "Copyright © 2026 sizzlei",
     "comments": "Lightweight editor for SQL, Markdown, JSON and YAML",
     "fileAssociations": [
